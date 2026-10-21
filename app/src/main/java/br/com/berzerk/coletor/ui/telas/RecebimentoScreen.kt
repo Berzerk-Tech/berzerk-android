@@ -55,7 +55,7 @@ fun RecebimentoScreen(voltar: () -> Unit, abrirLote: (String) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho("Recebimento", "Lotes no galpão e a caminho", aoVoltar = voltar, acao = {
+        Cabecalho("Recebimento", "Lotes no galpão e a caminho", aoVoltar = voltar, rotulo = "Berzerk Nexus", acao = {
             TextButton(onClick = { versao++ }) { Text("Atualizar", color = TextoFraco) }
         })
         OutlinedTextField(
@@ -76,7 +76,7 @@ fun RecebimentoScreen(voltar: () -> Unit, abrirLote: (String) -> Unit) {
                 Cartao(Modifier.clickable { abrirLote(lote.loteId) }) {
                     Column {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(lote.codigo, style = MaterialTheme.typography.titleLarge, color = Texto)
+                            Text(lote.codigo, style = MaterialTheme.typography.headlineSmall, color = Texto)
                             Text("${lote.esperadoTotal} pç", style = MaterialTheme.typography.titleMedium, color = TextoFraco)
                         }
                         Text(listOfNotNull(lote.produto, lote.cor).joinToString(" · ").ifEmpty { "—" }, color = Texto)

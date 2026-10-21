@@ -13,7 +13,6 @@ import br.com.berzerk.coletor.api.SupervisorDto
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.rfid.RfidReader
-import br.com.berzerk.coletor.upload.SemTokenException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +39,6 @@ data class ConferenciaUi(
     val pendentesEnvio: Int = 0,
     val enviando: Boolean = false,
     val ultimoEnvio: String? = null,
-    val semToken: Boolean = false,
     val confirmando: Boolean = false,
     val pergunta: Pergunta? = null,
     val concluido: Boolean = false,
@@ -120,10 +118,11 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
             val r = Graph.upload.enviar(snapshot)
             ultimoEnvioHash = hash
             enviados = snapshot.size
-            _ui.update { it.copy(enviando = false, pendentesEnvio = lidos.size - enviados, semToken = false, ultimoEnvio = if (r.duplicado == true) "sem novidade" else "${r.epcs} EPCs") }
+            _ui.update { it.copy(enviando = false, pendentesEnvio = lidos.size - enviados, ultimoEnvio = if (r.duplicado == true) "sem novidade" else "${r.epcs} EPCs") }
             atualizar()
-        } catch (e: SemTokenException) {
-            _ui.update { it.copy(enviando = false, semToken = true) }
+        } catch (e: ApiException) {
+            val msg = if (e.codigo == "coletor_revogado") "Este aparelho foi revogado no Nexus (Revisão RFID → Coletores)." else "Envio falhou: ${e.mensagemCurta()}"
+            _ui.update { it.copy(enviando = false, erro = msg) }
         } catch (e: Throwable) {
             _ui.update { it.copy(enviando = false, erro = "Envio falhou: ${e.mensagemCurta()}") }
         }

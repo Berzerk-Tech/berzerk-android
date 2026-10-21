@@ -66,7 +66,7 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
     val lendo = rfid is RfidEstado.Lendo
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho(lote?.codigo ?: "Conferência", listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ").ifEmpty { null }, aoVoltar = voltar)
+        Cabecalho(lote?.codigo ?: "Conferência", listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ").ifEmpty { null }, aoVoltar = voltar, rotulo = "Recebimento")
 
         if (ui.carregando) {
             Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
@@ -75,12 +75,6 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (ui.erro != null) Cartao { Text(ui.erro!!, color = Vermelho) }
-            if (ui.semToken) Cartao {
-                Column {
-                    Text("Token do coletor não configurado: as leituras não estão chegando ao Nexus.", color = Ambar)
-                    TextButton(onClick = irConfig) { Text("Configurar", color = Texto) }
-                }
-            }
             if (lote != null) {
                 // Totais
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {

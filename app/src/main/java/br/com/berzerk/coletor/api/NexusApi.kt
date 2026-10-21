@@ -45,10 +45,17 @@ interface NexusApi {
     @GET("revisao-rfid/itag/imagens")
     suspend fun itagImagens(): ItagImagensResponse
 
-    // --- leituras do coletor (token de coletor, sem JWT) ---
-    @Headers("$SEM_AUTH: 1", "Content-Type: text/plain; charset=utf-8")
-    @POST("rfid/upload")
-    suspend fun upload(@Header("x-upload-token") token: String, @Body corpo: RequestBody): UploadResponse
+    @GET("revisao-rfid/itag/snapshot")
+    suspend fun itagSnapshot(): ItagSnapshotDto
+
+    // --- leituras do coletor (autenticado; o Nexus cadastra o aparelho pelo id) ---
+    @Headers("Content-Type: text/plain; charset=utf-8")
+    @POST("revisao-rfid/leituras")
+    suspend fun leituras(
+        @Header("x-coletor-dispositivo") dispositivoId: String,
+        @Header("x-coletor-modelo") modelo: String,
+        @Body corpo: RequestBody,
+    ): UploadResponse
 
     // --- atualização (pública) ---
     @Headers("$SEM_AUTH: 1")
