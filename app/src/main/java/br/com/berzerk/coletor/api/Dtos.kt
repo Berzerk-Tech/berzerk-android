@@ -8,6 +8,25 @@ import kotlinx.serialization.json.JsonElement
 // a API pode ganhar campo antes do app (e vice-versa) sem quebrar o parse.
 
 @Serializable
+data class OperadorDto(val id: String = "", val nome: String = "", val username: String = "")
+
+@Serializable
+data class FacialIdentificarResponse(
+    val token: String = "",
+    val expiraEm: String = "",
+    val operador: OperadorDto = OperadorDto(),
+)
+
+/** `code` dos erros de `POST android/operador/identificar` e do 403 de sessão. */
+object FacialCodigos {
+    const val ROSTO_NAO_DETECTADO = "rosto_nao_detectado"
+    const val VARIOS_ROSTOS = "varios_rostos"
+    const val ROSTO_NAO_RECONHECIDO = "rosto_nao_reconhecido"
+    const val OPERADOR_INATIVO = "operador_inativo"
+    const val SESSAO_INVALIDA = "operador_sessao_invalida"
+}
+
+@Serializable
 data class MeDto(
     val actorId: String,
     val email: String? = null,

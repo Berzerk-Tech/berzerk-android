@@ -4,6 +4,8 @@ import android.content.Context
 import br.com.berzerk.coletor.api.NexusApi
 import br.com.berzerk.coletor.api.NexusClient
 import br.com.berzerk.coletor.auth.AuthManager
+import br.com.berzerk.coletor.auth.OperadorSessao
+import br.com.berzerk.coletor.auth.SessaoEstado
 import br.com.berzerk.coletor.data.ColetorDb
 import br.com.berzerk.coletor.data.ItagSync
 import br.com.berzerk.coletor.update.UpdateManager
@@ -19,6 +21,7 @@ import java.util.concurrent.TimeUnit
 object Graph {
     lateinit var prefs: Prefs; private set
     lateinit var auth: AuthManager; private set
+    lateinit var operador: OperadorSessao; private set
     lateinit var client: NexusClient; private set
     lateinit var db: ColetorDb; private set
     lateinit var itag: ItagSync; private set
@@ -35,7 +38,8 @@ object Graph {
         val app = context.applicationContext
         prefs = Prefs(app)
         auth = AuthManager(app, prefs)
-        client = NexusClient(auth)
+        operador = OperadorSessao(prefs, { client.api }, scope, logado = { auth.sessao.value is SessaoEstado.Logado })
+        client = NexusClient(auth, operador)
         db = ColetorDb.abrir(app)
         itag = ItagSync(db, { client.api }, httpExterno, scope, app.cacheDir)
         update = UpdateManager({ client.api }, httpExterno)

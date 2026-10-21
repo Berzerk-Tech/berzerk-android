@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import br.com.berzerk.coletor.api.MeDto
 import br.com.berzerk.coletor.api.mensagemCurta
+import br.com.berzerk.coletor.auth.OperadorEstado
 import br.com.berzerk.coletor.auth.SessaoEstado
 import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
@@ -49,10 +50,20 @@ import br.com.berzerk.coletor.ui.theme.Vermelho
 import java.text.NumberFormat
 import java.util.Locale
 
-/** `GET /separacao/me` em memória de processo: permissões e nome de cadastro. */
+/**
+ * `GET /separacao/me` em memória de processo: permissões e nome de cadastro.
+ * Vale só pra sessão de operador que o buscou (`chave` = id + expiração): trocou o operador, descarta.
+ */
 object MeCache {
-    var me: MeDto? = null
-    var erro: String? = null
+    private var chave: String? = null
+    private var me: MeDto? = null
+
+    fun valor(chaveAtual: String?): MeDto? = me.takeIf { chave == chaveAtual && chaveAtual != null }
+
+    fun guardar(chaveAtual: String?, valor: MeDto) {
+        chave = chaveAtual
+        me = valor
+    }
 }
 
 @Composable
@@ -60,26 +71,28 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
-    var me by remember { mutableStateOf(MeCache.me) }
-    var erroMe by remember { mutableStateOf<String?>(null) }
+    val operador by Graph.operador.estado.collectAsState()
+    val ativo = operador as? OperadorEstado.Ativo
+    val chave = ativo?.let { "${it.id}:${it.expiraEm}" }
+    var me by remember(chave) { mutableStateOf(MeCache.valor(chave)) }
+    var erroMe by remember(chave) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(sessao) {
-        if (sessao is SessaoEstado.Logado && me == null) {
+    LaunchedEffect(sessao, chave) {
+        if (sessao is SessaoEstado.Logado && ativo != null && me == null) {
             runCatching { Graph.api.me() }
-                .onSuccess { me = it; MeCache.me = it; erroMe = null }
+                .onSuccess { me = it; MeCache.guardar(chave, it); erroMe = null }
                 .onFailure { erroMe = it.mensagemCurta() }
         }
     }
 
-    val logado = sessao as? SessaoEstado.Logado
-    val nome = me?.rotulo ?: logado?.nome ?: logado?.email ?: "—"
+    val nome = me?.rotulo ?: ativo?.nome?.takeIf { it.isNotBlank() } ?: "—"
     val podeConferir = me?.let { it.tem(Config.PERMISSAO_CONFERIR) || it.tem(Config.PERMISSAO_OPERATE) }
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho(
             titulo = "Coletor",
             rotulo = "Berzerk Nexus",
-            subtitulo = nome + (logado?.email?.let { " · $it" } ?: ""),
+            subtitulo = nome,
             acao = {
                 IconButton(onClick = irConfig) { Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = Texto) }
             },
@@ -92,7 +105,7 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
             MenuItem("01", "Recebimento", "Conferir lotes que chegaram do galpão", habilitado = podeConferir != false, onClick = irRecebimento)
             MenuItem("02", "Leitura livre", "Contar peças por produto e tamanho, enviar pro Nexus", habilitado = true, onClick = irLeitura)
             Spacer(Modifier.height(4.dp))
-            BotaoGrande("Trocar operador", onClick = { Graph.auth.sair() }, contorno = true)
+            BotaoGrande("Trocar operador", onClick = { Graph.operador.encerrar() }, contorno = true)
             Spacer(Modifier.height(4.dp))
             Cartao {
                 Column {

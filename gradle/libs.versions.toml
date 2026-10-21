@@ -16,6 +16,8 @@ room = "2.6.1"
 securityCrypto = "1.1.0-alpha06"
 datastore = "1.1.1"
 coil = "2.7.0"
+camerax = "1.3.4"
+mlkitFace = "16.1.7"
 coroutines = "1.9.0"
 junit = "4.13.2"
 
@@ -44,6 +46,12 @@ retrofit-kotlinx = { group = "com.jakewharton.retrofit", name = "retrofit2-kotli
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+# Bundled (modelo dentro do APK), não a versão play-services: o Urovo não depende de GMS.
+mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", version.ref = "mlkitFace" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
