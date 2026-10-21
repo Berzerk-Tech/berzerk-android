@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
@@ -47,6 +48,7 @@ class ItagSync(
     private val api: () -> NexusApi,
     private val httpExterno: OkHttpClient,
     private val scope: CoroutineScope,
+    private val cacheDir: File,
 ) {
     private val dao = db.epcs()
     private val _status = MutableStateFlow(SyncStatus())
@@ -124,17 +126,34 @@ class ItagSync(
         }
         val m = manifesto ?: return false
         val url = m.url ?: return false
-        fase("Baixando a base…", 0)
         val inicio = System.currentTimeMillis()
+
+        // Fase 1: baixar o arquivo inteiro (~8 MB gzip) pro cache, com progresso em bytes.
+        val pasta = File(cacheDir, "itag").apply { mkdirs() }
+        val arquivo = File(pasta, "snapshot.tsv.gz")
+        val totalBytes = m.bytes ?: -1L
+        fase("Baixando a base… 0 de ${mb(totalBytes)}", 0)
         val resposta = httpExterno.newCall(Request.Builder().url(url).build()).execute()
         if (!resposta.isSuccessful) throw IllegalStateException("HTTP ${resposta.code} ao baixar o snapshot")
         val corpo = resposta.body ?: throw IllegalStateException("snapshot vazio")
-        val totalBytes = m.bytes ?: corpo.contentLength()
+        val tamanho = if (totalBytes > 0) totalBytes else corpo.contentLength()
         val digest = MessageDigest.getInstance("SHA-256")
-        var linhas = 0L
         val contado = ContadorStream(corpo.byteStream(), digest) { lidos ->
-            if (totalBytes > 0) fase("Baixando a base…", (lidos * 100 / totalBytes).toInt().coerceIn(0, 99))
+            fase("Baixando a base… ${mb(lidos)} de ${mb(tamanho)}", if (tamanho > 0) (lidos * 100 / tamanho).toInt().coerceIn(0, 100) else null)
         }
+        contado.use { entrada -> arquivo.outputStream().use { saida -> entrada.copyTo(saida, 256 * 1024) } }
+        val sha = digest.digest().joinToString("") { "%02x".format(it) }
+        if (m.sha256 != null && !m.sha256.equals(sha, ignoreCase = true)) {
+            arquivo.delete()
+            throw IllegalStateException("O arquivo baixado não bate com o publicado (sha256); tente de novo.")
+        }
+        val tBaixado = System.currentTimeMillis()
+        Log.i(TAG, "snapshot baixado: ${arquivo.length()} bytes em ${(tBaixado - inicio) / 1000}s")
+
+        // Fase 2: gravar no SQLite, com progresso em linhas (o manifesto diz quantas são).
+        val totalLinhas = m.linhas ?: 0L
+        fase("Gravando no aparelho… 0 de ${fmtInt(totalLinhas)}", 0)
+        var linhas = 0L
         val sqlite = db.openHelper.writableDatabase
         // Carga em lote: sem fsync por transação e journal em memória (se o app morrer no meio, a
         // base é refeita do zero — `desde` só é gravado no fim). Restaurado no `finally`.
@@ -143,7 +162,7 @@ class ItagSync(
         sqlite.execSQL("PRAGMA cache_size = -65536")
         val stmt = sqlite.compileStatement("INSERT OR REPLACE INTO epcs (epc, ean13, nome, tamanho, cor, referencia, dataGerado) VALUES (?,?,?,?,?,?,?)")
         try {
-        BufferedReader(InputStreamReader(GZIPInputStream(contado, 64 * 1024), Charsets.UTF_8), 256 * 1024).use { leitor ->
+        BufferedReader(InputStreamReader(GZIPInputStream(arquivo.inputStream(), 64 * 1024), Charsets.UTF_8), 256 * 1024).use { leitor ->
             var lote = 0
             sqlite.beginTransaction()
             try {
@@ -162,6 +181,7 @@ class ItagSync(
                     if (++lote >= LOTE) {
                         sqlite.setTransactionSuccessful(); sqlite.endTransaction(); sqlite.beginTransaction(); lote = 0
                         _status.value = _status.value.copy(baixadosNestaRodada = linhas)
+                        fase("Gravando no aparelho… ${fmtInt(linhas)} de ${fmtInt(totalLinhas)}", if (totalLinhas > 0) (linhas * 100 / totalLinhas).toInt().coerceIn(0, 100) else null)
                     }
                 }
                 sqlite.setTransactionSuccessful()
@@ -173,19 +193,19 @@ class ItagSync(
         } finally {
             runCatching { sqlite.execSQL("PRAGMA journal_mode = WAL") }
             runCatching { sqlite.execSQL("PRAGMA synchronous = NORMAL") }
+            arquivo.delete()
         }
         fase("Otimizando a base…")
         runCatching { sqlite.execSQL("ANALYZE epcs") }
-        val sha = digest.digest().joinToString("") { "%02x".format(it) }
-        if (m.sha256 != null && !m.sha256.equals(sha, ignoreCase = true)) {
-            Log.w(TAG, "sha256 do snapshot não bate (esperado ${m.sha256.take(8)}…, lido ${sha.take(8)}…)")
-        }
+        Log.i(TAG, "snapshot gravado: $linhas linhas em ${(System.currentTimeMillis() - tBaixado) / 1000}s")
         val anterior = dao.estado() ?: SyncEstado()
         dao.gravarEstado(anterior.copy(desde = m.maxDataGerado ?: m.geradoEm, cursorPendente = null, desdePendente = null, concluidoEm = System.currentTimeMillis()))
         _status.value = _status.value.copy(totalLocal = dao.total(), baixadosNestaRodada = linhas, pct = null)
-        Log.i(TAG, "snapshot: $linhas linhas em ${(System.currentTimeMillis() - inicio) / 1000}s")
         return true
     }
+
+    private fun mb(bytes: Long): String = if (bytes <= 0) "?" else "%.1f MB".format(bytes / 1_048_576.0)
+    private fun fmtInt(n: Long): String = java.text.NumberFormat.getIntegerInstance(java.util.Locale("pt", "BR")).format(n)
 
     private fun bindOuNulo(stmt: androidx.sqlite.db.SupportSQLiteStatement, i: Int, v: String) {
         if (v.isEmpty()) stmt.bindNull(i) else stmt.bindString(i, v)

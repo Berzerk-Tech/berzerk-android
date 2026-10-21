@@ -37,7 +37,7 @@ object Graph {
         auth = AuthManager(app, prefs)
         client = NexusClient(auth)
         db = ColetorDb.abrir(app)
-        itag = ItagSync(db, { client.api }, httpExterno, scope)
+        itag = ItagSync(db, { client.api }, httpExterno, scope, app.cacheDir)
         update = UpdateManager({ client.api }, httpExterno)
         upload = UploadService(app) { client.api }
         scope.launch { client.atualizacaoObrigatoria.collect { update.marcarObrigatoria(it) } }
