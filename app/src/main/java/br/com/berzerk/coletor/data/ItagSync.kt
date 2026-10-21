@@ -65,16 +65,33 @@ class ItagSync(
 
     fun cancelar() { job?.cancel() }
 
+    /** Apaga a base local e baixa de novo do zero (snapshot). */
+    fun apagarEBaixar() {
+        cancelar()
+        job = scope.launch(Dispatchers.IO) {
+            fase("Apagando a base…")
+            val sqlite = db.openHelper.writableDatabase
+            sqlite.execSQL("DELETE FROM sync_estado")
+            sqlite.execSQL("DELETE FROM epcs")
+            sqlite.execSQL("DELETE FROM imagens")
+            runCatching { sqlite.execSQL("VACUUM") }
+            _status.value = SyncStatus()
+            rodar(forcarImagens = true)
+        }
+    }
+
     private fun fase(texto: String?, pct: Int? = null) { _status.value = _status.value.copy(fase = texto, pct = pct) }
 
     private suspend fun rodar(forcarImagens: Boolean) {
         _status.value = _status.value.copy(rodando = true, erro = null, baixadosNestaRodada = 0, paginas = 0, pct = null)
         try {
             var estado = dao.estado() ?: SyncEstado()
-            val precisaCarga = estado.desde == null && estado.cursorPendente == null
-            if (precisaCarga) {
+            // Base nunca concluída (sem `desde`) = carga pelo snapshot, mesmo que uma paginação
+            // antiga tenha ficado pela metade (era o que prendia o app na versão velha).
+            if (estado.desde == null) {
                 val ok = carregarSnapshot()
                 if (ok) estado = dao.estado() ?: SyncEstado()
+                else if (estado.cursorPendente != null) { /* segue a paginação de onde parou */ }
             }
             delta(estado)
             val precisaImagens = forcarImagens || estado.imagensEm == null || System.currentTimeMillis() - estado.imagensEm > 24 * 3600_000L
@@ -119,7 +136,13 @@ class ItagSync(
             if (totalBytes > 0) fase("Baixando a base…", (lidos * 100 / totalBytes).toInt().coerceIn(0, 99))
         }
         val sqlite = db.openHelper.writableDatabase
+        // Carga em lote: sem fsync por transação e journal em memória (se o app morrer no meio, a
+        // base é refeita do zero — `desde` só é gravado no fim). Restaurado no `finally`.
+        sqlite.execSQL("PRAGMA synchronous = OFF")
+        sqlite.execSQL("PRAGMA journal_mode = MEMORY")
+        sqlite.execSQL("PRAGMA cache_size = -65536")
         val stmt = sqlite.compileStatement("INSERT OR REPLACE INTO epcs (epc, ean13, nome, tamanho, cor, referencia, dataGerado) VALUES (?,?,?,?,?,?,?)")
+        try {
         BufferedReader(InputStreamReader(GZIPInputStream(contado, 64 * 1024), Charsets.UTF_8), 256 * 1024).use { leitor ->
             var lote = 0
             sqlite.beginTransaction()
@@ -147,6 +170,12 @@ class ItagSync(
                 stmt.close()
             }
         }
+        } finally {
+            runCatching { sqlite.execSQL("PRAGMA journal_mode = WAL") }
+            runCatching { sqlite.execSQL("PRAGMA synchronous = NORMAL") }
+        }
+        fase("Otimizando a base…")
+        runCatching { sqlite.execSQL("ANALYZE epcs") }
         val sha = digest.digest().joinToString("") { "%02x".format(it) }
         if (m.sha256 != null && !m.sha256.equals(sha, ignoreCase = true)) {
             Log.w(TAG, "sha256 do snapshot não bate (esperado ${m.sha256.take(8)}…, lido ${sha.take(8)}…)")
@@ -212,7 +241,7 @@ class ItagSync(
 
     companion object {
         private const val TAG = "ItagSync"
-        private const val LOTE = 20_000
+        private const val LOTE = 100_000
         private const val SNAPSHOT_ESPERA_MAX = 12
         private const val SNAPSHOT_ESPERA_MS = 15_000L
     }
