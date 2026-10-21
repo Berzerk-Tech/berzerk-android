@@ -1,0 +1,41 @@
+package br.com.berzerk.coletor.core
+
+import android.content.Context
+import br.com.berzerk.coletor.api.NexusApi
+import br.com.berzerk.coletor.api.NexusClient
+import br.com.berzerk.coletor.auth.AuthManager
+import br.com.berzerk.coletor.data.ColetorDb
+import br.com.berzerk.coletor.data.ItagSync
+import br.com.berzerk.coletor.update.UpdateManager
+import br.com.berzerk.coletor.upload.UploadService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
+/** Composição manual dos singletons do app (sem framework de DI). */
+object Graph {
+    lateinit var prefs: Prefs; private set
+    lateinit var auth: AuthManager; private set
+    lateinit var client: NexusClient; private set
+    lateinit var db: ColetorDb; private set
+    lateinit var itag: ItagSync; private set
+    lateinit var update: UpdateManager; private set
+    lateinit var upload: UploadService; private set
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val api: NexusApi get() = client.api
+
+    fun init(context: Context) {
+        val app = context.applicationContext
+        prefs = Prefs(app)
+        auth = AuthManager(app, prefs)
+        client = NexusClient(auth)
+        db = ColetorDb.abrir(app)
+        itag = ItagSync(db.epcs(), { client.api }, scope)
+        update = UpdateManager({ client.api }, client.http)
+        upload = UploadService({ client.api }, prefs)
+        scope.launch { client.atualizacaoObrigatoria.collect { update.marcarObrigatoria(it) } }
+        scope.launch { itag.carregarStatus() }
+    }
+}
