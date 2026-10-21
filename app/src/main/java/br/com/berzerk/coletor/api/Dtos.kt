@@ -206,16 +206,14 @@ data class AppDesatualizadoErro(
     val mensagem: String = "",
 )
 
-@Serializable
-data class ColetorResumoDto(val id: String, val nome: String)
-
-/** `POST /revisao-rfid/leituras` (e o upload legado por token): `coletor` é o aparelho que o Nexus cadastrou/achou. */
+/** `POST /revisao-rfid/leituras` (mesmo shape do upload legado): `coletor` = NOME do aparelho que o Nexus cadastrou/achou, `coletorId` o uuid. */
 @Serializable
 data class UploadResponse(
     val ok: Boolean = true,
     val aceito: Boolean? = null,
     val uploadId: String? = null,
-    val coletor: ColetorResumoDto? = null,
+    val coletor: String? = null,
+    val coletorId: String? = null,
     val epcs: Int = 0,
     val novos: Int? = null,
     val duplicado: Boolean? = null,
