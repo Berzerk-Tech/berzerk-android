@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,6 +35,7 @@ import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
+import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.LinhaInfo
@@ -78,10 +78,10 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho(
-            titulo = nome,
-            subtitulo = logado?.email,
+            titulo = "Coletor",
+            rotulo = "Berzerk Nexus",
+            subtitulo = nome + (logado?.email?.let { " · $it" } ?: ""),
             acao = {
-                TextButton(onClick = { Graph.auth.sair() }) { Text("Trocar operador", color = TextoFraco) }
                 IconButton(onClick = irConfig) { Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = Texto) }
             },
         )
@@ -92,7 +92,9 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
             }
             MenuItem("01", "Recebimento", "Conferir lotes que chegaram do galpão", habilitado = podeConferir != false, onClick = irRecebimento)
             MenuItem("02", "Leitura livre", "Contar peças por produto e tamanho, enviar pro Nexus", habilitado = true, onClick = irLeitura)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
+            BotaoGrande("Trocar operador", onClick = { Graph.auth.sair() }, contorno = true)
+            Spacer(Modifier.height(4.dp))
             Cartao {
                 Column {
                     Rotulo("Aparelho")
@@ -119,12 +121,13 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
 private fun MenuItem(numero: String, titulo: String, descricao: String, habilitado: Boolean, onClick: () -> Unit) {
     Cartao(Modifier.clickable(enabled = habilitado, onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(numero, style = MaterialTheme.typography.headlineMedium, color = if (habilitado) TextoFraco else TextoFraco.copy(alpha = 0.4f))
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text(titulo, style = MaterialTheme.typography.titleLarge, color = if (habilitado) Texto else TextoFraco)
+            Text(numero, style = MaterialTheme.typography.displayMedium, color = if (habilitado) TextoFraco else TextoFraco.copy(alpha = 0.4f))
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(titulo.uppercase(), style = MaterialTheme.typography.headlineSmall, color = if (habilitado) Texto else TextoFraco)
                 Text(descricao, style = MaterialTheme.typography.bodyMedium, color = TextoFraco)
             }
+            Text("→", style = MaterialTheme.typography.titleLarge, color = TextoFraco)
         }
     }
 }

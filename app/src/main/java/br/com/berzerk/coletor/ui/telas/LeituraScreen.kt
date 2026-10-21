@@ -152,7 +152,7 @@ fun LeituraScreen(voltar: () -> Unit, irConfig: () -> Unit) {
     val lendo = rfid is RfidEstado.Lendo
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho("Leitura livre", "${ui.totalEpcs} etiquetas" + (if (ui.semCadastro > 0) " · ${ui.semCadastro} sem cadastro" else ""), aoVoltar = voltar, acao = {
+        Cabecalho("Leitura livre", "${ui.totalEpcs} etiquetas" + (if (ui.semCadastro > 0) " · ${ui.semCadastro} sem cadastro" else ""), aoVoltar = voltar, rotulo = "Berzerk Nexus", acao = {
             TextButton(onClick = vm::limpar) { Text("Limpar", color = TextoFraco) }
         })
         if (ui.baseVazia) Cartao(Modifier.padding(horizontal = 16.dp)) {
@@ -178,7 +178,7 @@ fun LeituraScreen(voltar: () -> Unit, irConfig: () -> Unit) {
                             Spacer(Modifier.width(12.dp))
                         }
                         Column(Modifier.weight(1f)) {
-                            Text(g.nome, style = MaterialTheme.typography.titleMedium, color = Texto)
+                            Text(g.nome.uppercase(), style = MaterialTheme.typography.headlineSmall, color = Texto)
                             Spacer(Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 g.porTamanho.forEach { (t, n) ->

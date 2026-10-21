@@ -58,7 +58,7 @@ fun ConfigScreen(voltar: () -> Unit) {
     val fmt = NumberFormat.getIntegerInstance(Locale("pt", "BR"))
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho("Configurações", aoVoltar = voltar)
+        Cabecalho("Configurações", aoVoltar = voltar, rotulo = "Berzerk Nexus")
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Cartao {
                 Column {

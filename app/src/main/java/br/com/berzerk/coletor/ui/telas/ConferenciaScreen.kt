@@ -66,7 +66,7 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
     val lendo = rfid is RfidEstado.Lendo
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho(lote?.codigo ?: "Conferência", listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ").ifEmpty { null }, aoVoltar = voltar)
+        Cabecalho(lote?.codigo ?: "Conferência", listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ").ifEmpty { null }, aoVoltar = voltar, rotulo = "Recebimento")
 
         if (ui.carregando) {
             Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
