@@ -92,8 +92,9 @@ fun ConfigScreen(voltar: () -> Unit) {
                     LinhaInfo("Imagens", if (sync.imagens == 0L) "nenhuma" else fmt.format(sync.imagens))
                     LinhaInfo("Última atualização", sync.concluidoEm?.let { SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(it)) } ?: "nunca")
                     if (sync.rodando) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
-                        Text((sync.fase ?: "Baixando…") + (sync.pct?.let { " $it%" } ?: "") + "  ·  ${fmt.format(sync.baixadosNestaRodada)} linhas", color = TextoFraco)
+                        val pct = sync.pct
+                        if (pct != null) LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) else LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
+                        Text((sync.fase ?: "Baixando…") + (sync.pct?.let { "  ·  $it%" } ?: ""), color = TextoFraco)
                         TextButton(onClick = { Graph.itag.cancelar() }) { Text("Pausar", color = TextoFraco) }
                     } else {
                         if (sync.erro != null) Text(sync.erro!!, color = Vermelho)
