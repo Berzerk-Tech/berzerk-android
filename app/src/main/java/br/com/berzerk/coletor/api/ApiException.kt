@@ -10,7 +10,7 @@ import java.io.IOException
  * `conferencia_diverge`, `app_desatualizado`…) + o corpo cru pra quem precisa
  * dos detalhes (a divergência, por exemplo).
  */
-class ApiException(
+open class ApiException(
     val status: Int,
     val codigo: String?,
     val corpo: String?,
@@ -31,7 +31,13 @@ class ApiException(
 
     companion object {
         fun codigoDe(corpo: String?): String? =
-            corpo?.let { runCatching { (JsonCfg.json.parseToJsonElement(it) as? JsonObject)?.get("error")?.jsonPrimitive?.content }.getOrNull() }
+            corpo?.let {
+                runCatching {
+                    val o = JsonCfg.json.parseToJsonElement(it) as? JsonObject
+                    // Rotas antigas devolvem `error`; as de operador/facial devolvem `code`.
+                    (o?.get("error") ?: o?.get("code"))?.jsonPrimitive?.content
+                }.getOrNull()
+            }
     }
 }
 
@@ -44,11 +50,18 @@ object JsonCfg {
     }
 }
 
+/** 403 `operador_sessao_invalida`: a sessão de operador expirou/foi revogada. NÃO é 401: a conta do aparelho segue de pé. */
+class OperadorSessaoInvalidaErro(corpo: String?, url: String) : ApiException(403, CODIGO, corpo, url) {
+    companion object {
+        const val CODIGO = "operador_sessao_invalida"
+    }
+}
+
 /** Texto curto pra tela, a partir de qualquer erro de rede/API. */
 fun Throwable.mensagemCurta(): String = when (this) {
     is ApiException -> mensagem ?: when (status) {
         401 -> "Sessão expirada. Entre de novo."
-        403 -> "Sem permissão (${codigo ?: "403"})."
+        403 -> if (this is OperadorSessaoInvalidaErro) "Sessão do operador expirou. Identifique-se de novo." else "Sem permissão (${codigo ?: "403"})."
         404 -> "Não encontrado (${codigo ?: "404"})."
         426 -> "Atualização obrigatória."
         in 500..599 -> "Nexus indisponível ($status)."

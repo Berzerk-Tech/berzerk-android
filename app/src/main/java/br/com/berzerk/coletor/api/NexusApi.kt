@@ -1,6 +1,12 @@
 package br.com.berzerk.coletor.api
 
+import br.com.berzerk.coletor.core.Config
+import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import retrofit2.Response
+import retrofit2.http.DELETE
+import retrofit2.http.Multipart
+import retrofit2.http.Part
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -56,6 +62,19 @@ interface NexusApi {
         @Header("x-coletor-modelo") modelo: String,
         @Body corpo: RequestBody,
     ): UploadResponse
+
+    // --- operador (reconhecimento facial; Bearer do aparelho, sem token de operador ainda) ---
+    @Multipart
+    @POST("android/operador/identificar")
+    suspend fun identificarOperador(
+        @Part foto: MultipartBody.Part,
+        @Header("x-coletor-dispositivo") dispositivoId: String,
+        @Header("x-coletor-modelo") modelo: String,
+    ): FacialIdentificarResponse
+
+    /** Revoga a sessão do token passado (explícito: o interceptor só põe o do estado atual). */
+    @DELETE("android/operador/sessao")
+    suspend fun encerrarSessaoOperador(@Header(Config.OPERADOR_HEADER) token: String): Response<Unit>
 
     // --- atualização (pública) ---
     @Headers("$SEM_AUTH: 1")

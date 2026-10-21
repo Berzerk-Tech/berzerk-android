@@ -107,7 +107,7 @@ fun LoginScreen(aoEntrar: () -> Unit) {
                 })
             }
             Spacer(Modifier.height(12.dp))
-            Text("Entre com sua conta Google @berzerk.com.br.", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+            Text("Entre com a conta do aparelho (webadmin@berzerk.com.br). Depois cada operador se identifica pelo rosto.", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
             if (erro != null) {
                 Spacer(Modifier.height(12.dp))
                 Text(erro!!, style = MaterialTheme.typography.bodySmall, color = Destrutivo)

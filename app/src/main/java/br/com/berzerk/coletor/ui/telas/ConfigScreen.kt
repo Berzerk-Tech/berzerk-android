@@ -109,6 +109,14 @@ fun ConfigScreen(voltar: () -> Unit) {
             }
             Cartao {
                 Column {
+                    Rotulo("Conta do aparelho")
+                    Spacer(Modifier.height(6.dp))
+                    Text("Sai da conta compartilhada do aparelho e também encerra o operador atual.", color = TextoFraco)
+                    TextButton(onClick = { Graph.operador.encerrar(); Graph.auth.sair() }) { Text("Sair da conta do aparelho", color = Vermelho) }
+                }
+            }
+            Cartao {
+                Column {
                     Rotulo("Sobre")
                     LinhaInfo("Versão", Config.versao)
                     LinhaInfo("Nexus", Config.apiBaseUrl.removeSuffix("/api/").removePrefix("https://"))

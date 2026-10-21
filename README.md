@@ -10,7 +10,8 @@ que lia o Supabase do legado.
 
 | Tela | O que é | Nexus |
 |---|---|---|
-| Login | "Entrar com @berzerk" — Google via Cognito (pool staff), code + PKCE, callback `berzerkrfid://auth/callback`. Id token renovado em silêncio; "Trocar operador" encerra a sessão | app client `berzerk-nexus-prod-coletor-android` (berzerk-infra #263) |
+| Login | Conta do aparelho (webadmin@berzerk.com.br): "Entrar" — Google via Cognito (pool staff), code + PKCE, callback `berzerkrfid://auth/callback`. Id token renovado em silêncio. Depois do login, cada operador se identifica pelo rosto (linha abaixo) | app client `berzerk-nexus-prod-coletor-android` (berzerk-infra #263) |
+| Identificação do operador | Câmera frontal, "vire o rosto e volte" (ML Kit, só liveness simples), uma foto jpeg em memória → `POST /android/operador/identificar` (multipart `foto`). O token devolvido vai no header `x-berzerk-operador` em toda request autenticada e o Nexus trata o operador como autor. 15 min sem toque/tecla/gatilho encerram a sessão no app; 12 h no servidor; 403 `operador_sessao_invalida` limpa só a sessão de operador e volta pra tela facial (a conta do aparelho segue). "Trocar operador" = `DELETE /android/operador/sessao` | `android/operador/*` |
 | Recebimento | Lotes no galpão / a caminho → abrir o lote → gatilho lê → leituras sobem a cada 4 s → grade lido × esperado por tamanho → Confirmar. Divergência pede aceite, causa + motivo e, acima da tolerância, PIN de supervisor | `revisao-rfid/conferencia-lote/*` (permissão `revisao-rfid:conferir`, papel `coletor-recebimento`) |
 | Leitura livre | Conta peças ao vivo por produto × tamanho usando a base EPC → produto baixada no aparelho; "Enviar pro Nexus" manda o acumulado | `GET /revisao-rfid/itag/epcs` + `/itag/imagens` (base), `POST /rfid/upload` (token do coletor) |
 | Configurações | Token do coletor (gerado em Revisão RFID → Coletores), potência e bipe do leitor, download/atualização da base | — |
@@ -25,8 +26,10 @@ O botão ▶ da tela faz o mesmo.
   públicos (client id, domínio do Cognito, URL da API — `gradle.properties`).
   Sessão e token do coletor ficam em `EncryptedSharedPreferences` (chave no
   Keystore do Android) e nunca saem do aparelho nem aparecem em log.
-- **Identidade = Nexus.** Toda ação é feita como o usuário logado (trilha por
-  pessoa, revogação pelo admin, permissão pelo papel). Sem conta compartilhada.
+- **Identidade = Nexus.** O aparelho loga com UMA conta compartilhada
+  (webadmin) e o operador se identifica pelo rosto; o Nexus casa o rosto, trata
+  o operador como autor (trilha por pessoa, permissão pelo papel) e revoga a
+  sessão. A foto só existe em memória: nunca vai pra disco nem pra log.
 - **Keystore de release** vive nos secrets do repo (`ANDROID_KEYSTORE_*`) com
   cópia em `berzerk-android/release-keystore` no Secrets Manager da conta
   Berzerk. Perder a chave = ninguém atualiza o app instalado.
@@ -43,7 +46,7 @@ Studio dá pra compilar com `./gradlew` (crie `local.properties` com `sdk.dir=`)
 ./gradlew assembleDebug            # app/build/outputs/apk/debug/
 ./gradlew testDebugUnitTest
 adb install -r app/build/outputs/apk/debug/berzerk-coletor-*.apk
-adb logcat -s Rfid Auth Nexus Update ItagSync
+adb logcat -s Rfid Auth Nexus Update ItagSync Facial
 ```
 
 Apontar pra outro Nexus/Cognito: sobrescreva `NEXUS_API_BASE_URL`,
