@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /** Composição manual dos singletons do app (sem framework de DI). */
 object Graph {
@@ -24,6 +26,9 @@ object Graph {
     lateinit var upload: UploadService; private set
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Downloads fora do Nexus (S3 presignado, GitHub Release): SEM Bearer nem header de versão. */
+    val httpExterno: OkHttpClient = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(5, TimeUnit.MINUTES).build()
+
     val api: NexusApi get() = client.api
 
     fun init(context: Context) {
@@ -32,9 +37,9 @@ object Graph {
         auth = AuthManager(app, prefs)
         client = NexusClient(auth)
         db = ColetorDb.abrir(app)
-        itag = ItagSync(db.epcs(), { client.api }, scope)
-        update = UpdateManager({ client.api }, client.http)
-        upload = UploadService({ client.api }, prefs)
+        itag = ItagSync(db, { client.api }, httpExterno, scope)
+        update = UpdateManager({ client.api }, httpExterno)
+        upload = UploadService(app) { client.api }
         scope.launch { client.atualizacaoObrigatoria.collect { update.marcarObrigatoria(it) } }
         scope.launch { itag.carregarStatus() }
     }

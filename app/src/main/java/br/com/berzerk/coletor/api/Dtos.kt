@@ -207,12 +207,28 @@ data class AppDesatualizadoErro(
 )
 
 @Serializable
+data class ColetorResumoDto(val id: String, val nome: String)
+
+/** `POST /revisao-rfid/leituras` (e o upload legado por token): `coletor` é o aparelho que o Nexus cadastrou/achou. */
+@Serializable
 data class UploadResponse(
     val ok: Boolean = true,
     val aceito: Boolean? = null,
     val uploadId: String? = null,
-    val coletor: String? = null,
+    val coletor: ColetorResumoDto? = null,
     val epcs: Int = 0,
     val novos: Int? = null,
     val duplicado: Boolean? = null,
+)
+
+/** `GET /revisao-rfid/itag/snapshot`: 200 com `url` presignada (15 min) ou 202 `{ gerando: true }`. */
+@Serializable
+data class ItagSnapshotDto(
+    val gerando: Boolean = false,
+    val url: String? = null,
+    val geradoEm: String? = null,
+    val maxDataGerado: String? = null,
+    val linhas: Long? = null,
+    val bytes: Long? = null,
+    val sha256: String? = null,
 )

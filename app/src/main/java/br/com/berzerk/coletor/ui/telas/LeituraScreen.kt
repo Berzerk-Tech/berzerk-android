@@ -46,7 +46,7 @@ import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
-import br.com.berzerk.coletor.upload.SemTokenException
+import br.com.berzerk.coletor.api.ApiException
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,7 +66,6 @@ data class LeituraUi(
     val enviando: Boolean = false,
     val ultimoEnvio: String? = null,
     val erro: String? = null,
-    val semToken: Boolean = false,
     val baseVazia: Boolean = false,
 )
 
@@ -132,9 +131,9 @@ class LeituraViewModel : ViewModel() {
             _ui.update { it.copy(enviando = true, erro = null) }
             try {
                 val r = Graph.upload.enviar(snapshot)
-                _ui.update { it.copy(enviando = false, semToken = false, ultimoEnvio = if (r.duplicado == true) "já enviado" else "${r.epcs} EPCs enviados") }
-            } catch (e: SemTokenException) {
-                _ui.update { it.copy(enviando = false, semToken = true) }
+                _ui.update { it.copy(enviando = false, ultimoEnvio = if (r.duplicado == true) "já enviado" else "${r.epcs} EPCs enviados") }
+            } catch (e: ApiException) {
+                _ui.update { it.copy(enviando = false, erro = if (e.codigo == "coletor_revogado") "Este aparelho foi revogado no Nexus." else e.mensagemCurta()) }
             } catch (e: Throwable) {
                 _ui.update { it.copy(enviando = false, erro = e.mensagemCurta()) }
             }
@@ -159,12 +158,6 @@ fun LeituraScreen(voltar: () -> Unit, irConfig: () -> Unit) {
             Column {
                 Text("A base de etiquetas ainda não foi baixada: as peças aparecem só como EPC.", color = Ambar)
                 TextButton(onClick = irConfig) { Text("Baixar base", color = Texto) }
-            }
-        }
-        if (ui.semToken) Cartao(Modifier.padding(16.dp, 8.dp)) {
-            Column {
-                Text("Token do coletor não configurado: não dá pra enviar.", color = Ambar)
-                TextButton(onClick = irConfig) { Text("Configurar", color = Texto) }
             }
         }
         if (ui.erro != null) Text(ui.erro!!, color = Vermelho, modifier = Modifier.padding(16.dp, 4.dp))

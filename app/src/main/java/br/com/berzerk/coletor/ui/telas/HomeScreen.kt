@@ -60,7 +60,6 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
-    val token by Graph.prefs.coletorToken.collectAsState()
     var me by remember { mutableStateOf(MeCache.me) }
     var erroMe by remember { mutableStateOf<String?>(null) }
 
@@ -109,7 +108,7 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
                     Spacer(Modifier.height(4.dp))
                     val fmt = NumberFormat.getIntegerInstance(Locale("pt", "BR"))
                     LinhaInfo("Base de etiquetas", if (sync.totalLocal == 0L) "não baixada" else "${fmt.format(sync.totalLocal)} EPCs" + if (sync.rodando) " (baixando…)" else "")
-                    LinhaInfo("Token do coletor", if (token == null) "não configurado" else "ok", if (token == null) Ambar else Verde)
+                    LinhaInfo("Aparelho", Graph.upload.modelo)
                     LinhaInfo("Versão", Config.versao)
                 }
             }

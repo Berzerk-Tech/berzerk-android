@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
 import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
@@ -68,7 +69,7 @@ fun LoginScreen(aoEntrar: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(Fundo)) {
         // Painel institucional
-        Box(Modifier.fillMaxWidth().weight(0.95f).gradeDeFundo()) {
+        Box(Modifier.fillMaxWidth().weight(0.95f).clipToBounds().gradeDeFundo()) {
             Simbolo(
                 Modifier.size(300.dp).align(Alignment.BottomEnd).offset(x = 70.dp, y = 90.dp),
                 cor = Texto.copy(alpha = 0.05f),

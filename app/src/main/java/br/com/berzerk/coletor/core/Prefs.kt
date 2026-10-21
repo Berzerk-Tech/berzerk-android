@@ -28,14 +28,6 @@ class Prefs(context: Context) {
         get() = prefs.getString(K_AUTH_STATE, null)
         set(v) = prefs.edit().putString(K_AUTH_STATE, v).apply()
 
-    private val _coletorToken = MutableStateFlow(prefs.getString(K_COLETOR_TOKEN, null)?.takeIf { it.isNotBlank() })
-    val coletorToken: StateFlow<String?> = _coletorToken
-    fun setColetorToken(token: String?) {
-        val limpo = token?.trim()?.takeIf { it.isNotEmpty() }
-        prefs.edit().putString(K_COLETOR_TOKEN, limpo).apply()
-        _coletorToken.value = limpo
-    }
-
     private val _potencia = MutableStateFlow(prefs.getInt(K_POTENCIA, POTENCIA_PADRAO))
     val potencia: StateFlow<Int> = _potencia
     fun setPotencia(dbm: Int) {
@@ -52,7 +44,6 @@ class Prefs(context: Context) {
 
     companion object {
         private const val K_AUTH_STATE = "auth_state"
-        private const val K_COLETOR_TOKEN = "coletor_token"
         private const val K_POTENCIA = "potencia_dbm"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26
