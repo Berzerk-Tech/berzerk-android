@@ -100,6 +100,9 @@ fun ConfigScreen(voltar: () -> Unit) {
                         Spacer(Modifier.height(6.dp))
                         BotaoGrande(if (sync.totalLocal == 0L) "Baixar base" else "Atualizar base", onClick = { Graph.itag.iniciar() })
                         Text("A primeira carga baixa a base inteira num arquivo só (1–2 min no Wi-Fi). Depois só o que mudou.", color = TextoFraco)
+                        if (sync.totalLocal > 0L || sync.erro != null) {
+                            TextButton(onClick = { Graph.itag.apagarEBaixar() }) { Text("Apagar base e baixar de novo", color = Vermelho) }
+                        }
                     }
                 }
             }
