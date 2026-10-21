@@ -49,7 +49,12 @@ jobs:
           SHA=$(sha256sum "$APK" | cut -d' ' -f1)
           IFS=. read -r MA MI PA <<< "$VERSAO"
           CODE=$((MA * 10000 + MI * 100 + PA))
-          NOTAS=$(git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/ *$//')
+          # Notas = mensagem da tag anotada (tag leve = sem notas). Nunca o corpo do commit.
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = "tag" ]; then
+            NOTAS=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | grep -v '^Co-Authored-By' | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/ *$//')
+          else
+            NOTAS=""
+          fi
           cat > latest.json <<JSON
           {
             "version": "$VERSAO",
