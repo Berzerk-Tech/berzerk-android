@@ -71,12 +71,13 @@ class ItagSync(
     fun apagarEBaixar() {
         cancelar()
         job = scope.launch(Dispatchers.IO) {
-            fase("Apagando a base…")
-            val sqlite = db.openHelper.writableDatabase
-            sqlite.execSQL("DELETE FROM sync_estado")
-            sqlite.execSQL("DELETE FROM epcs")
-            sqlite.execSQL("DELETE FROM imagens")
-            runCatching { sqlite.execSQL("VACUUM") }
+            _status.value = SyncStatus(rodando = true, fase = "Apagando a base…")
+            try {
+                dao.limparTudo()
+            } catch (e: Throwable) {
+                _status.value = SyncStatus(erro = "Não deu pra apagar: ${e.mensagemCurta()}")
+                return@launch
+            }
             _status.value = SyncStatus()
             rodar(forcarImagens = true)
         }
@@ -155,10 +156,10 @@ class ItagSync(
         fase("Gravando no aparelho… 0 de ${fmtInt(totalLinhas)}", 0)
         var linhas = 0L
         val sqlite = db.openHelper.writableDatabase
-        // Carga em lote: sem fsync por transação e journal em memória (se o app morrer no meio, a
-        // base é refeita do zero — `desde` só é gravado no fim). Restaurado no `finally`.
+        // Carga em lote: sem fsync por transação (se o app morrer no meio, a base é refeita do
+        // zero — `desde` só é gravado no fim). Restaurado no `finally`. O journal fica em WAL:
+        // trocar o modo com as conexões do Room abertas dá SQLITE_BUSY (0.2.2).
         sqlite.execSQL("PRAGMA synchronous = OFF")
-        sqlite.execSQL("PRAGMA journal_mode = MEMORY")
         sqlite.execSQL("PRAGMA cache_size = -65536")
         val stmt = sqlite.compileStatement("INSERT OR REPLACE INTO epcs (epc, ean13, nome, tamanho, cor, referencia, dataGerado) VALUES (?,?,?,?,?,?,?)")
         try {
@@ -191,7 +192,6 @@ class ItagSync(
             }
         }
         } finally {
-            runCatching { sqlite.execSQL("PRAGMA journal_mode = WAL") }
             runCatching { sqlite.execSQL("PRAGMA synchronous = NORMAL") }
             arquivo.delete()
         }

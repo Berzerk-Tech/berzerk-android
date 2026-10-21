@@ -69,6 +69,15 @@ interface EpcDao {
     @Query("SELECT COUNT(*) FROM imagens")
     suspend fun totalImagens(): Long
 
+    @Query("DELETE FROM epcs") suspend fun apagarEpcs()
+    @Query("DELETE FROM imagens") suspend fun apagarImagens()
+    @Query("DELETE FROM sync_estado") suspend fun apagarEstado()
+
+    @Transaction
+    suspend fun limparTudo() {
+        apagarEstado(); apagarEpcs(); apagarImagens()
+    }
+
     @Transaction
     suspend fun inserirPagina(linhas: List<EpcEntity>, estado: SyncEstado) {
         inserir(linhas)
