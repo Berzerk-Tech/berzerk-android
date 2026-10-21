@@ -40,7 +40,8 @@ fun App() {
 
     LaunchedEffect(Unit) { Graph.update.verificar() }
     LaunchedEffect(sessao) {
-        if (sessao is SessaoEstado.Deslogado) {
+        // Sessão caiu (refresh recusado, "Trocar operador"): volta pro login limpando a pilha.
+        if (sessao is SessaoEstado.Deslogado && nav.currentDestination?.route != Rotas.LOGIN) {
             nav.navigate(Rotas.LOGIN) { popUpTo(0) { inclusive = true } }
         }
     }
