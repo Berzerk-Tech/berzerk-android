@@ -1,5 +1,6 @@
 package br.com.berzerk.coletor.ui
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,8 @@ import br.com.berzerk.coletor.ui.telas.HomeScreen
 import br.com.berzerk.coletor.ui.telas.LeituraScreen
 import br.com.berzerk.coletor.ui.telas.LoginScreen
 import br.com.berzerk.coletor.ui.telas.RecebimentoScreen
+import br.com.berzerk.coletor.ui.telas.RevisaoModeloScreen
+import br.com.berzerk.coletor.ui.telas.RevisaoScreen
 import br.com.berzerk.coletor.ui.theme.Preto
 import kotlinx.coroutines.delay
 
@@ -37,9 +40,12 @@ object Rotas {
     const val HOME = "home"
     const val RECEBIMENTO = "recebimento"
     const val CONFERENCIA = "conferencia/{loteId}"
+    const val REVISAO = "revisao"
+    const val REVISAO_MODELO = "revisao/{chave}"
     const val LEITURA = "leitura"
     const val CONFIG = "config"
     fun conferencia(loteId: String) = "conferencia/$loteId"
+    fun revisaoModelo(chave: String) = "revisao/${Uri.encode(chave)}"
 }
 
 @Composable
@@ -96,7 +102,7 @@ fun App() {
             composable(Rotas.HOME) {
                 HomeScreen(
                     irRecebimento = { nav.navigate(Rotas.RECEBIMENTO) },
-                    irLeitura = { nav.navigate(Rotas.LEITURA) },
+                    irRevisao = { nav.navigate(Rotas.REVISAO) },
                     irConfig = { nav.navigate(Rotas.CONFIG) },
                 )
             }
@@ -106,6 +112,18 @@ fun App() {
             composable(Rotas.CONFERENCIA) { entrada ->
                 val loteId = entrada.arguments?.getString("loteId") ?: return@composable
                 ConferenciaScreen(loteId = loteId, voltar = { nav.popBackStack() }, irConfig = { nav.navigate(Rotas.CONFIG) })
+            }
+            composable(Rotas.REVISAO) {
+                RevisaoScreen(
+                    voltar = { nav.popBackStack() },
+                    irConfig = { nav.navigate(Rotas.CONFIG) },
+                    irLeitura = { nav.navigate(Rotas.LEITURA) },
+                    abrirModelo = { nav.navigate(Rotas.revisaoModelo(it)) },
+                )
+            }
+            composable(Rotas.REVISAO_MODELO) { entrada ->
+                val chave = entrada.arguments?.getString("chave") ?: return@composable
+                RevisaoModeloScreen(chave = chave, voltar = { nav.popBackStack() })
             }
             composable(Rotas.LEITURA) { LeituraScreen(voltar = { nav.popBackStack() }, irConfig = { nav.navigate(Rotas.CONFIG) }) }
             composable(Rotas.CONFIG) { ConfigScreen(voltar = { nav.popBackStack() }) }

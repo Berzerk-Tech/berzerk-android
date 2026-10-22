@@ -14,6 +14,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,6 +36,10 @@ data class SyncStatus(
     val concluidoEm: Long? = null,
     val erro: String? = null,
     val imagens: Long = 0,
+    /** Modelos distintos no índice local (`modelos`). */
+    val modelos: Long = 0,
+    /** `true` enquanto `reindexarModelos` roda. */
+    val indexando: Boolean = false,
 )
 
 /**
@@ -54,10 +60,35 @@ class ItagSync(
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status
     private var job: Job? = null
+    private val mutexIndice = Mutex()
 
     suspend fun carregarStatus() {
         val estado = dao.estado()
-        _status.value = _status.value.copy(totalLocal = dao.total(), concluidoEm = estado?.concluidoEm, imagens = dao.totalImagens())
+        val total = dao.total()
+        _status.value = _status.value.copy(totalLocal = total, concluidoEm = estado?.concluidoEm, imagens = dao.totalImagens(), modelos = dao.totalModelos())
+        // Base já baixada mas sem índice de modelos (primeira abertura depois da migração 1 → 2).
+        if (_status.value.modelos == 0L && total > 0) reindexarModelos()
+    }
+
+    /** Reconstrói a tabela `modelos` a partir de `epcs` (agrega por nome/EAN/tamanho e aplica `parseNomeItag`). */
+    suspend fun reindexarModelos() = withContext(Dispatchers.IO) {
+        mutexIndice.withLock {
+            val inicio = System.currentTimeMillis()
+            _status.value = _status.value.copy(indexando = true)
+            try {
+                val agregadas = dao.agregarPorNome()
+                val linhas = indexarLinhas(agregadas)
+                dao.substituirModelos(linhas)
+                _status.value = _status.value.copy(modelos = dao.totalModelos())
+                Log.i(TAG, "modelos reindexados: ${agregadas.size} grupos → ${linhas.size} linhas em ${System.currentTimeMillis() - inicio} ms")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.w(TAG, "reindexar modelos falhou", e)
+            } finally {
+                _status.value = _status.value.copy(indexando = false)
+            }
+        }
     }
 
     fun iniciar(forcarImagens: Boolean = false) {
@@ -102,7 +133,9 @@ class ItagSync(
                 fase("Baixando imagens…")
                 baixarImagens()
             }
+            val novas = _status.value.baixadosNestaRodada > 0
             _status.value = _status.value.copy(rodando = false, fase = null, pct = null, concluidoEm = System.currentTimeMillis(), totalLocal = dao.total(), imagens = dao.totalImagens())
+            if (novas || dao.totalModelos() == 0L) reindexarModelos()
         } catch (e: CancellationException) {
             _status.value = _status.value.copy(rodando = false, fase = null, pct = null, totalLocal = dao.total())
             throw e

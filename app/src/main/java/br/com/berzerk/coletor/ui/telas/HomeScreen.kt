@@ -67,7 +67,7 @@ object MeCache {
 }
 
 @Composable
-fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () -> Unit) {
+fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irConfig: () -> Unit) {
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -103,7 +103,7 @@ fun HomeScreen(irRecebimento: () -> Unit, irLeitura: () -> Unit, irConfig: () ->
                 Cartao { Text("Sua conta ainda não tem acesso ao recebimento. Peça ao admin o papel coletor-recebimento no Nexus.", color = Ambar) }
             }
             MenuItem("01", "Recebimento", "Conferir lotes que chegaram do galpão", habilitado = podeConferir != false, onClick = irRecebimento)
-            MenuItem("02", "Leitura livre", "Contar peças por produto e tamanho, enviar pro Nexus", habilitado = true, onClick = irLeitura)
+            MenuItem("02", "Revisão RFID", "Ler peças por modelo e tamanho e salvar no inventário", habilitado = true, onClick = irRevisao)
             Spacer(Modifier.height(4.dp))
             BotaoGrande("Trocar operador", onClick = { Graph.operador.encerrar() }, contorno = true)
             Spacer(Modifier.height(4.dp))

@@ -5,6 +5,8 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
@@ -40,6 +42,24 @@ data class SyncEstado(
     val imagensEm: Long? = null,
 )
 
+/**
+ * Índice por modelo, derivado de `epcs` (`categoria - modelo - tamanho` no `nome` da iTag).
+ * Reconstruído por `ItagSync.reindexarModelos()` depois de cada sync. `qtd` = nº de EPCs.
+ */
+@Entity(tableName = "modelos", primaryKeys = ["categoria", "modelo", "tamanho", "ean13"])
+data class ModeloEntity(
+    val categoria: String,
+    val modelo: String,
+    /** Uppercase; `""` se a iTag não trouxe. */
+    val tamanho: String,
+    /** `""` se a iTag não trouxe. */
+    val ean13: String,
+    val qtd: Int,
+)
+
+/** Resultado da agregação sobre `epcs` (antes do parse do nome). */
+data class LinhaAgregada(val nome: String?, val ean13: String?, val tamanho: String?, val qtd: Int)
+
 @Dao
 interface EpcDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -69,13 +89,32 @@ interface EpcDao {
     @Query("SELECT COUNT(*) FROM imagens")
     suspend fun totalImagens(): Long
 
+    @Query("SELECT nome, ean13, tamanho, COUNT(*) AS qtd FROM epcs GROUP BY nome, ean13, tamanho")
+    suspend fun agregarPorNome(): List<LinhaAgregada>
+
+    @Query("SELECT * FROM modelos")
+    suspend fun listarModelos(): List<ModeloEntity>
+
+    @Query("SELECT COUNT(DISTINCT lower(categoria) || '|' || lower(modelo)) FROM modelos")
+    suspend fun totalModelos(): Long
+
+    @Query("DELETE FROM modelos") suspend fun apagarModelos()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun inserirModelos(linhas: List<ModeloEntity>)
+
+    @Transaction
+    suspend fun substituirModelos(linhas: List<ModeloEntity>) {
+        apagarModelos(); inserirModelos(linhas)
+    }
+
     @Query("DELETE FROM epcs") suspend fun apagarEpcs()
     @Query("DELETE FROM imagens") suspend fun apagarImagens()
     @Query("DELETE FROM sync_estado") suspend fun apagarEstado()
 
     @Transaction
     suspend fun limparTudo() {
-        apagarEstado(); apagarEpcs(); apagarImagens()
+        apagarEstado(); apagarEpcs(); apagarImagens(); apagarModelos()
     }
 
     @Transaction
@@ -85,13 +124,25 @@ interface EpcDao {
     }
 }
 
-@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class], version = 1, exportSchema = false)
+@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class], version = 2, exportSchema = false)
 abstract class ColetorDb : RoomDatabase() {
     abstract fun epcs(): EpcDao
 
     companion object {
+        /** 1 → 2: só cria `modelos` (preenchida pelo `reindexarModelos`); NÃO mexe em `epcs` (2,8 M linhas). */
+        private val MIGRACAO_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `modelos` (`categoria` TEXT NOT NULL, `modelo` TEXT NOT NULL, " +
+                        "`tamanho` TEXT NOT NULL, `ean13` TEXT NOT NULL, `qtd` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`categoria`, `modelo`, `tamanho`, `ean13`))",
+                )
+            }
+        }
+
         fun abrir(context: Context): ColetorDb =
             Room.databaseBuilder(context.applicationContext, ColetorDb::class.java, "coletor.db")
+                .addMigrations(MIGRACAO_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
     }
