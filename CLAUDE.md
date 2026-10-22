@@ -16,7 +16,7 @@ commits `tipo(escopo): descrição`, branches `feat|fix/<slug>`, squash merge
   - `data/` — Room (`epcs`, `imagens`, `sync_estado`, `modelos`; `Modelos` = parse do `nome` da iTag + resumos por modelo, `modelos` reindexada após cada sync) + `ItagSync` (páginas de 20k, keyset + `desde`, retoma de onde parou).
   - `update/UpdateManager` — release do Nexus, download com sha256, instalador do Android.
   - `upload/UploadService` — `POST /rfid/upload` texto puro com `x-upload-token`.
-  - `ui/` — Compose: `App` (rotas), `telas/*` (Login, Recebimento (card estilo Nexus com `FotoProduto`), Facial + FacialViewModel (câmera frontal, ML Kit, liveness), Home, Recebimento, Conferência + ViewModel, Revisão (lista de modelos), RevisaoModelo (leitura por modelo + SALVAR), Leitura ("Ler tudo"), Config, AtualizacaoOverlay), `comum/` (inclui `FotoProduto`: recorte com zoom + tela cheia), `theme/`.
+  - `ui/` — Compose: `App` (rotas), `telas/*` (Login, Recebimento (card estilo Nexus com `FotoProduto`), Facial + FacialViewModel (câmera frontal, ML Kit, liveness), Home, Recebimento, Conferência + ViewModel (mesmo layout da Revisão por modelo: grade por tamanho com EAN, contadores, console, rodapé LER/Zerar + Confirmar), Revisão (lista de modelos), RevisaoModelo (leitura por modelo + SALVAR), Leitura ("Ler tudo"), Config, AtualizacaoOverlay), `comum/` (inclui `FotoProduto`: recorte com zoom + tela cheia; `TileTamanho`, `Contador`, `ConsoleLeituras`, `RodapeLeitura` compartilhados entre Revisão e Conferência), `theme/`.
 - `app/libs/URFIDLibrary-v2.6.0609.aar` — SDK proprietário da Urovo (doc em UrovoSdkCenter/RFID_Android).
 
 ## Regras
