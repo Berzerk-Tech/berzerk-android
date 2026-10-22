@@ -9,14 +9,19 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
@@ -25,6 +30,9 @@ import java.io.InputStreamReader
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import kotlin.coroutines.coroutineContext
+
+/** Imagens por EAN exato e por prefixo de 12 dígitos (o 13º só separa o tamanho). */
+private class CacheImagens(val porEan: Map<String, String>, val porPrefixo: Map<String, String>)
 
 data class SyncStatus(
     val rodando: Boolean = false,
@@ -36,6 +44,10 @@ data class SyncStatus(
     val concluidoEm: Long? = null,
     val erro: String? = null,
     val imagens: Long = 0,
+    /** Download das imagens do catálogo: independente da base (job, erro e data próprios). */
+    val imagensRodando: Boolean = false,
+    val imagensEm: Long? = null,
+    val imagensErro: String? = null,
     /** Modelos distintos no índice local (`modelos`). */
     val modelos: Long = 0,
     /** `true` enquanto `reindexarModelos` roda. */
@@ -60,14 +72,22 @@ class ItagSync(
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status
     private var job: Job? = null
+    private var jobImagens: Job? = null
+    @Volatile private var callAtual: Call? = null
+    @Volatile private var cacheImagens: CacheImagens? = null
     private val mutexIndice = Mutex()
 
     suspend fun carregarStatus() {
         val estado = dao.estado()
         val total = dao.total()
-        _status.value = _status.value.copy(totalLocal = total, concluidoEm = estado?.concluidoEm, imagens = dao.totalImagens(), modelos = dao.totalModelos())
-        // Base já baixada mas sem índice de modelos (primeira abertura depois da migração 1 → 2).
-        if (_status.value.modelos == 0L && total > 0) reindexarModelos()
+        val imagens = dao.totalImagens()
+        _status.value = _status.value.copy(
+            totalLocal = total, concluidoEm = estado?.concluidoEm, imagens = imagens, imagensEm = estado?.imagensEm, modelos = dao.totalModelos(),
+        )
+        // Base presente mas índice ausente (migração 1 → 2) ou de uma regra antiga de `parseNomeItag`.
+        if (total > 0 && (_status.value.modelos == 0L || (estado?.indiceVersao ?: 0) != VERSAO_INDICE)) reindexarModelos()
+        val em = estado?.imagensEm
+        if (imagens == 0L || em == null || System.currentTimeMillis() - em > IMAGENS_VALIDADE_MS) atualizarImagens(false)
     }
 
     /** Reconstrói a tabela `modelos` a partir de `epcs` (agrega por nome/EAN/tamanho e aplica `parseNomeItag`). */
@@ -79,6 +99,7 @@ class ItagSync(
                 val agregadas = dao.agregarPorNome()
                 val linhas = indexarLinhas(agregadas)
                 dao.substituirModelos(linhas)
+                dao.gravarEstado((dao.estado() ?: SyncEstado()).copy(indiceVersao = VERSAO_INDICE))
                 _status.value = _status.value.copy(modelos = dao.totalModelos())
                 Log.i(TAG, "modelos reindexados: ${agregadas.size} grupos → ${linhas.size} linhas em ${System.currentTimeMillis() - inicio} ms")
             } catch (e: CancellationException) {
@@ -91,32 +112,73 @@ class ItagSync(
         }
     }
 
-    fun iniciar(forcarImagens: Boolean = false) {
+    fun iniciar() {
         if (job?.isActive == true) return
-        job = scope.launch(Dispatchers.IO) { rodar(forcarImagens) }
+        job = scope.launch(Dispatchers.IO) { rodar() }
     }
 
-    fun cancelar() { job?.cancel() }
+    /** Pausa: o status já mostra "Pausando…" e o download em andamento (OkHttp) é cancelado. */
+    fun cancelar() {
+        if (job?.isActive == true) fase("Pausando…", _status.value.pct)
+        job?.cancel()
+        callAtual?.cancel()
+    }
 
-    /** Apaga a base local e baixa de novo do zero (snapshot). */
+    /** Apaga a base local e baixa de novo do zero (snapshot + imagens). */
     fun apagarEBaixar() {
         cancelar()
+        val anterior = job
         job = scope.launch(Dispatchers.IO) {
+            anterior?.cancelAndJoin()
+            jobImagens?.cancelAndJoin()
             _status.value = SyncStatus(rodando = true, fase = "Apagando a base…")
             try {
                 dao.limparTudo()
+                cacheImagens = null
             } catch (e: Throwable) {
                 _status.value = SyncStatus(erro = "Não deu pra apagar: ${e.mensagemCurta()}")
                 return@launch
             }
             _status.value = SyncStatus()
-            rodar(forcarImagens = true)
+            rodar()
+            atualizarImagens(forcar = true)
+        }
+    }
+
+    /**
+     * Baixa as imagens do catálogo (job próprio, independente da base): troca a tabela `imagens`
+     * inteira numa transação. Pula se já rodando ou se a última foi há menos de 24 h (salvo `forcar`).
+     */
+    fun atualizarImagens(forcar: Boolean = false) {
+        if (jobImagens?.isActive == true) return
+        jobImagens = scope.launch(Dispatchers.IO) { executarImagens(forcar) }
+    }
+
+    private suspend fun executarImagens(forcar: Boolean) {
+        try {
+            val em = dao.estado()?.imagensEm
+            if (!forcar && em != null && System.currentTimeMillis() - em < IMAGENS_VALIDADE_MS && dao.totalImagens() > 0) return
+            _status.value = _status.value.copy(imagensRodando = true, imagensErro = null)
+            val resp = api().itagImagens()
+            dao.substituirImagens(resp.imagens.map { ImagemEntity(it.ean13, it.sku, it.imagemUrl) })
+            val agora = System.currentTimeMillis()
+            dao.gravarEstado((dao.estado() ?: SyncEstado()).copy(imagensEm = agora))
+            cacheImagens = null
+            _status.value = _status.value.copy(imagens = dao.totalImagens(), imagensEm = agora)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Log.w(TAG, "imagens falharam", e)
+            val msg = if (e is ApiException && e.status == 403) "Sem permissão pra baixar as imagens (revisao-rfid:conferir)." else e.mensagemCurta()
+            _status.value = _status.value.copy(imagensErro = msg)
+        } finally {
+            _status.value = _status.value.copy(imagensRodando = false)
         }
     }
 
     private fun fase(texto: String?, pct: Int? = null) { _status.value = _status.value.copy(fase = texto, pct = pct) }
 
-    private suspend fun rodar(forcarImagens: Boolean) {
+    private suspend fun rodar() {
         _status.value = _status.value.copy(rodando = true, erro = null, baixadosNestaRodada = 0, paginas = 0, pct = null)
         try {
             var estado = dao.estado() ?: SyncEstado()
@@ -128,22 +190,28 @@ class ItagSync(
                 else if (estado.cursorPendente != null) { /* segue a paginação de onde parou */ }
             }
             delta(estado)
-            val precisaImagens = forcarImagens || estado.imagensEm == null || System.currentTimeMillis() - estado.imagensEm > 24 * 3600_000L
-            if (precisaImagens) {
-                fase("Baixando imagens…")
-                baixarImagens()
-            }
             val novas = _status.value.baixadosNestaRodada > 0
-            _status.value = _status.value.copy(rodando = false, fase = null, pct = null, concluidoEm = System.currentTimeMillis(), totalLocal = dao.total(), imagens = dao.totalImagens())
+            _status.value = _status.value.copy(rodando = false, fase = null, pct = null, concluidoEm = System.currentTimeMillis(), totalLocal = dao.total())
+            atualizarImagens(false)
             if (novas || dao.totalModelos() == 0L) reindexarModelos()
         } catch (e: CancellationException) {
-            _status.value = _status.value.copy(rodando = false, fase = null, pct = null, totalLocal = dao.total())
+            pausado()
             throw e
         } catch (e: Throwable) {
+            // Cancelar a chamada do OkHttp (pausa no download) estoura IOException, não Cancellation.
+            if (!currentCoroutineContext().isActive) {
+                pausado()
+                throw CancellationException("pausado", e)
+            }
             Log.w(TAG, "sync falhou", e)
             val msg = if (e is ApiException && e.status == 403) "Sem permissão pra baixar a base (revisao-rfid:conferir)." else e.mensagemCurta()
             _status.value = _status.value.copy(rodando = false, fase = null, pct = null, erro = msg, totalLocal = dao.total())
         }
+    }
+
+    /** Roda fora do escopo cancelado (o Room recusa suspend em coroutine cancelada). */
+    private suspend fun pausado() = withContext(NonCancellable) {
+        _status.value = _status.value.copy(rodando = false, fase = null, pct = null, totalLocal = dao.total())
     }
 
     /** `true` se o snapshot foi aplicado; `false` = indisponível (cai nas páginas). */
@@ -167,15 +235,21 @@ class ItagSync(
         val arquivo = File(pasta, "snapshot.tsv.gz")
         val totalBytes = m.bytes ?: -1L
         fase("Baixando a base… 0 de ${mb(totalBytes)}", 0)
-        val resposta = httpExterno.newCall(Request.Builder().url(url).build()).execute()
-        if (!resposta.isSuccessful) throw IllegalStateException("HTTP ${resposta.code} ao baixar o snapshot")
+        val chamada = httpExterno.newCall(Request.Builder().url(url).build())
+        callAtual = chamada
+        val resposta = try { chamada.execute() } catch (e: Throwable) { callAtual = null; throw e }
+        if (!resposta.isSuccessful) { callAtual = null; resposta.close(); throw IllegalStateException("HTTP ${resposta.code} ao baixar o snapshot") }
         val corpo = resposta.body ?: throw IllegalStateException("snapshot vazio")
         val tamanho = if (totalBytes > 0) totalBytes else corpo.contentLength()
         val digest = MessageDigest.getInstance("SHA-256")
         val contado = ContadorStream(corpo.byteStream(), digest) { lidos ->
             fase("Baixando a base… ${mb(lidos)} de ${mb(tamanho)}", if (tamanho > 0) (lidos * 100 / tamanho).toInt().coerceIn(0, 100) else null)
         }
-        contado.use { entrada -> arquivo.outputStream().use { saida -> entrada.copyTo(saida, 256 * 1024) } }
+        try {
+            contado.use { entrada -> arquivo.outputStream().use { saida -> entrada.copyTo(saida, 256 * 1024) } }
+        } finally {
+            callAtual = null
+        }
         val sha = digest.digest().joinToString("") { "%02x".format(it) }
         if (m.sha256 != null && !m.sha256.equals(sha, ignoreCase = true)) {
             arquivo.delete()
@@ -250,6 +324,7 @@ class ItagSync(
         var cursor = estado.cursorPendente
         var baixados = _status.value.baixadosNestaRodada
         var paginas = 0
+        var novos = 0L
         var maior: String? = estado.desde
         fase(if (estado.desde == null) "Baixando a base por páginas…" else "Atualizando…")
         while (true) {
@@ -259,24 +334,26 @@ class ItagSync(
             paginas++
             baixados += linhas.size
             val proximo = pagina.proximoCursor
-            val novoEstado = if (proximo == null) {
-                SyncEstado(desde = maior, cursorPendente = null, desdePendente = null, concluidoEm = System.currentTimeMillis(), imagensEm = estado.imagensEm)
-            } else {
-                SyncEstado(desde = estado.desde, cursorPendente = proximo, desdePendente = desde, concluidoEm = estado.concluidoEm, imagensEm = estado.imagensEm)
+            // Em pedaços, com ponto de cancelamento entre eles; o estado só avança depois da página inteira
+            // (cancelou no meio → a próxima rodada refaz a página, o REPLACE absorve a duplicata).
+            linhas.chunked(PEDACO).forEach { pedaco ->
+                dao.inserir(pedaco)
+                novos += pedaco.size
+                fase("${if (estado.desde == null) "Baixando a base por páginas…" else "Atualizando…"} +${fmtInt(novos)}")
+                coroutineContext.ensureActive()
             }
-            dao.inserirPagina(linhas, novoEstado)
+            val atual = dao.estado() ?: SyncEstado()
+            val novoEstado = if (proximo == null) {
+                atual.copy(desde = maior, cursorPendente = null, desdePendente = null, concluidoEm = System.currentTimeMillis())
+            } else {
+                atual.copy(desde = estado.desde, cursorPendente = proximo, desdePendente = desde, concluidoEm = estado.concluidoEm)
+            }
+            dao.gravarEstado(novoEstado)
             _status.value = _status.value.copy(totalLocal = dao.total(), baixadosNestaRodada = baixados, paginas = paginas)
             if (proximo == null) break
             cursor = proximo
         }
         Log.i(TAG, "delta: +${baixados} em $paginas páginas, total=${_status.value.totalLocal}")
-    }
-
-    private suspend fun baixarImagens() {
-        val resp = api().itagImagens()
-        dao.inserirImagens(resp.imagens.map { ImagemEntity(it.ean13, it.sku, it.imagemUrl) })
-        val estado = dao.estado() ?: SyncEstado()
-        dao.gravarEstado(estado.copy(imagensEm = System.currentTimeMillis()))
     }
 
     /** EPCs → produto, em lotes de 500 (limite de variáveis do SQLite). */
@@ -286,15 +363,31 @@ class ItagSync(
         saida
     }
 
+    private suspend fun cacheDeImagens(): CacheImagens {
+        cacheImagens?.let { return it }
+        val todas = dao.todasImagens()
+        val porEan = HashMap<String, String>(todas.size * 2)
+        val porPrefixo = HashMap<String, String>(todas.size * 2)
+        todas.forEach { i ->
+            porEan[i.ean13] = i.imagemUrl
+            porPrefixo.putIfAbsent(i.ean13.take(12), i.imagemUrl) // ordenado por EAN: a primeira url é estável
+        }
+        return CacheImagens(porEan, porPrefixo).also { cacheImagens = it }
+    }
+
+    /** EAN → url da foto: casa o EAN exato e, se não houver, o prefixo de 12 dígitos (etiquetas antigas). */
     suspend fun imagemPor(eans: Collection<String>): Map<String, String> = withContext(Dispatchers.IO) {
+        val c = cacheDeImagens()
         val saida = HashMap<String, String>()
-        eans.chunked(500).forEach { parte -> dao.imagens(parte).forEach { saida[it.ean13] = it.imagemUrl } }
+        eans.forEach { ean -> (c.porEan[ean] ?: c.porPrefixo[ean.take(12)])?.let { saida[ean] = it } }
         saida
     }
 
     companion object {
         private const val TAG = "ItagSync"
         private const val LOTE = 100_000
+        private const val PEDACO = 2_000
+        private const val IMAGENS_VALIDADE_MS = 24 * 3600_000L
         private const val SNAPSHOT_ESPERA_MAX = 12
         private const val SNAPSHOT_ESPERA_MS = 15_000L
     }

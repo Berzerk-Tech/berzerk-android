@@ -50,6 +50,10 @@ data class LoteElegivelDto(
     val statusNome: String = "",
     val aguardandoRecebimento: Boolean = false,
     val esperadoTotal: Int = 0,
+    // Opcionais: o Nexus novo manda; app velho × API velha segue parseando.
+    val imagemUrl: String? = null,
+    val esperadoPorTamanho: Map<String, Int> = emptyMap(),
+    val galpaoCheckinEm: String? = null,
 )
 
 @Serializable

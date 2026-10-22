@@ -6,7 +6,8 @@ import java.text.Collator
 import java.util.Locale
 
 /**
- * Parse do `nome` da iTag: `"Oversized - Alfa - G"` = `categoria - modelo - tamanho`.
+ * Parse do `nome` da iTag: `"Oversized - Alfa - G - Branca"` = `categoria - modelo - tamanho - cor`
+ * (o tamanho pode estar no meio ou no fim; todo segmento igual ao tamanho ou da régua sai do modelo).
  * Devolve (categoria normalizada pra exibição, modelo). Sem " - " → ("Outros", nome); vazio → ("Outros", "Sem nome").
  */
 fun parseNomeItag(nome: String?, tamanho: String?): Pair<String, String> {
@@ -15,16 +16,15 @@ fun parseNomeItag(nome: String?, tamanho: String?): Pair<String, String> {
     if (!limpo.contains(" - ")) return "Outros" to limpo
     val partes = limpo.split(" - ").map { it.trim() }
     val categoria = capitalizarCategoria(partes[0]).ifEmpty { "Outros" }
-    var resto = partes.drop(1)
-    if (resto.size >= 2) {
-        val ultimo = resto.last()
-        if ((!tamanho.isNullOrBlank() && ultimo.equals(tamanho.trim(), ignoreCase = true)) || ehTamanhoDaRegua(ultimo)) {
-            resto = resto.dropLast(1)
-        }
-    }
+    val tam = tamanho?.trim().orEmpty()
+    // O tamanho pode estar no meio (`categoria - modelo - TAMANHO - cor`): sai de qualquer posição.
+    val resto = partes.drop(1).filter { seg -> !(seg.equals(tam, ignoreCase = true) && tam.isNotEmpty()) && !ehTamanhoDaRegua(seg) }
     val modelo = resto.joinToString(" - ").ifEmpty { "Sem nome" }
     return categoria to modelo
 }
+
+/** Versão do índice `modelos` (regra de `parseNomeItag`); mudou → reindexa. */
+const val VERSAO_INDICE = 2
 
 /** `"POLIAMIDA tech"` → `"Poliamida Tech"`. */
 fun capitalizarCategoria(texto: String): String =

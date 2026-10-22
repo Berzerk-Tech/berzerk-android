@@ -47,6 +47,7 @@ import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
+import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.ui.comum.Ponto
 import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Borda
@@ -57,7 +58,6 @@ import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
-import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,7 +117,7 @@ class RevisaoViewModel : ViewModel() {
 
     init {
         viewModelScope.launch {
-            Graph.itag.status.map { Triple(it.concluidoEm, it.modelos, it.indexando) }.distinctUntilChanged().collect { carregar() }
+            Graph.itag.status.map { listOf(it.concluidoEm, it.modelos, it.indexando, it.imagensEm) }.distinctUntilChanged().collect { carregar() }
         }
         viewModelScope.launch {
             combine(indice, buscaTexto.debounce(250), categoriaSel) { idx, busca, cat -> Triple(idx, busca, cat) }
@@ -283,14 +283,6 @@ private fun ChipCategoria(texto: String, selecionado: Boolean, onClick: () -> Un
 }
 
 @Composable
-internal fun ImagemModelo(url: String?, tamanho: androidx.compose.ui.unit.Dp) {
-    val forma = RoundedCornerShape(6.dp)
-    Box(Modifier.size(tamanho).clip(forma).background(Fundo)) {
-        if (url != null) AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(tamanho))
-    }
-}
-
-@Composable
 internal fun SeloCategoria(categoria: String) {
     Box(Modifier.background(Muted, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) {
         Text(categoria.uppercase(), style = MaterialTheme.typography.labelSmall, color = TextoFraco, maxLines = 1)
@@ -304,7 +296,7 @@ private fun CartaoModelo(m: ModeloResumo, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clip(forma).background(CorCartao, forma).border(1.dp, Borda, forma).clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ImagemModelo(m.imagemUrl, 64.dp)
+        FotoProduto(m.imagemUrl, 64.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

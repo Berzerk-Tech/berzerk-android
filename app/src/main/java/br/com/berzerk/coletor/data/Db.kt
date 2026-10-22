@@ -40,6 +40,8 @@ data class SyncEstado(
     val desdePendente: String? = null,
     val concluidoEm: Long? = null,
     val imagensEm: Long? = null,
+    /** Versão do índice `modelos` (`VERSAO_INDICE`); 0 = nunca indexado. */
+    val indiceVersao: Int = 0,
 )
 
 /**
@@ -86,6 +88,9 @@ interface EpcDao {
     @Query("SELECT * FROM imagens WHERE ean13 IN (:eans)")
     suspend fun imagens(eans: List<String>): List<ImagemEntity>
 
+    @Query("SELECT * FROM imagens ORDER BY ean13")
+    suspend fun todasImagens(): List<ImagemEntity>
+
     @Query("SELECT COUNT(*) FROM imagens")
     suspend fun totalImagens(): Long
 
@@ -112,6 +117,12 @@ interface EpcDao {
     @Query("DELETE FROM imagens") suspend fun apagarImagens()
     @Query("DELETE FROM sync_estado") suspend fun apagarEstado()
 
+    /** Troca todas as imagens de uma vez (não acumula EAN que saiu do catálogo). */
+    @Transaction
+    suspend fun substituirImagens(linhas: List<ImagemEntity>) {
+        apagarImagens(); inserirImagens(linhas)
+    }
+
     @Transaction
     suspend fun limparTudo() {
         apagarEstado(); apagarEpcs(); apagarImagens(); apagarModelos()
@@ -124,7 +135,7 @@ interface EpcDao {
     }
 }
 
-@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class], version = 2, exportSchema = false)
+@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class], version = 3, exportSchema = false)
 abstract class ColetorDb : RoomDatabase() {
     abstract fun epcs(): EpcDao
 
@@ -140,9 +151,16 @@ abstract class ColetorDb : RoomDatabase() {
             }
         }
 
+        /** 2 → 3: `sync_estado.indiceVersao` (força reindexar `modelos`); NÃO mexe em `epcs`. */
+        private val MIGRACAO_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_estado ADD COLUMN indiceVersao INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun abrir(context: Context): ColetorDb =
             Room.databaseBuilder(context.applicationContext, ColetorDb::class.java, "coletor.db")
-                .addMigrations(MIGRACAO_1_2)
+                .addMigrations(MIGRACAO_1_2, MIGRACAO_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
     }

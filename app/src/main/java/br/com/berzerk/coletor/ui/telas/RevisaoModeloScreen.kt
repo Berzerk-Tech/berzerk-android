@@ -50,6 +50,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import br.com.berzerk.coletor.api.ApiException
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.data.ModeloResumo
 import br.com.berzerk.coletor.data.chaveModelo
 import br.com.berzerk.coletor.data.montarResumos
@@ -209,7 +210,7 @@ fun RevisaoModeloScreen(chave: String, voltar: () -> Unit) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // 1. Topo
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ImagemModelo(resumo?.imagemUrl, 56.dp)
+                FotoProduto(resumo?.imagemUrl, 56.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

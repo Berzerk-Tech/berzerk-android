@@ -89,13 +89,13 @@ fun ConfigScreen(voltar: () -> Unit) {
                     Rotulo("Base de etiquetas (iTag)")
                     Spacer(Modifier.height(8.dp))
                     LinhaInfo("No aparelho", if (sync.totalLocal == 0L) "nada" else "${fmt.format(sync.totalLocal)} EPCs")
-                    LinhaInfo("Imagens", if (sync.imagens == 0L) "nenhuma" else fmt.format(sync.imagens))
                     LinhaInfo("Última atualização", sync.concluidoEm?.let { SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(it)) } ?: "nunca")
                     if (sync.rodando) {
                         val pct = sync.pct
                         if (pct != null) LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) else LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
                         Text((sync.fase ?: "Baixando…") + (sync.pct?.let { "  ·  $it%" } ?: ""), color = TextoFraco)
-                        TextButton(onClick = { Graph.itag.cancelar() }) { Text("Pausar", color = TextoFraco) }
+                        val pausando = sync.fase == "Pausando…"
+                        TextButton(onClick = { Graph.itag.cancelar() }, enabled = !pausando) { Text(if (pausando) "Pausando…" else "Pausar", color = TextoFraco) }
                     } else {
                         if (sync.erro != null) Text(sync.erro!!, color = Vermelho)
                         Spacer(Modifier.height(6.dp))
@@ -105,6 +105,24 @@ fun ConfigScreen(voltar: () -> Unit) {
                             TextButton(onClick = { Graph.itag.apagarEBaixar() }) { Text("Apagar base e baixar de novo", color = Vermelho) }
                         }
                     }
+                }
+            }
+            Cartao {
+                Column {
+                    Rotulo("Imagens do catálogo")
+                    Spacer(Modifier.height(8.dp))
+                    LinhaInfo("No aparelho", if (sync.imagens == 0L) "nenhuma" else "${fmt.format(sync.imagens)} produtos")
+                    LinhaInfo("Última atualização", sync.imagensEm?.let { SimpleDateFormat("dd/MM HH:mm", Locale("pt", "BR")).format(Date(it)) } ?: "nunca")
+                    if (sync.imagensErro != null) Text(sync.imagensErro!!, color = Vermelho)
+                    Spacer(Modifier.height(6.dp))
+                    BotaoGrande(
+                        if (sync.imagensRodando) "Atualizando…" else "Atualizar imagens",
+                        onClick = { Graph.itag.atualizarImagens(forcar = true) },
+                        habilitado = !sync.imagensRodando,
+                        contorno = true,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text("Fotos do catálogo (Shopify/Tiny) usadas na Revisão RFID e no Recebimento. Separadas da base de etiquetas.", color = TextoFraco)
                 }
             }
             Cartao {
