@@ -19,6 +19,24 @@ class ModelosTest {
         assertEquals("Oversized" to "Alfa", parseNomeItag("Oversized - Alfa - XG", null))
     }
 
+    @Test fun tamanhoNoMeio() {
+        assertEquals("Oversized" to "A Gigante Sereia - Branca", parseNomeItag("Oversized - A Gigante Sereia - G - Branca", "G"))
+        // sem o tamanho do cadastro: a régua resolve
+        assertEquals("Oversized" to "A Gigante Sereia - Branca", parseNomeItag("Oversized - A Gigante Sereia - GG - Branca", null))
+    }
+
+    @Test fun tamanhoNoFimComCor() {
+        assertEquals("Oversized" to "A Gigante Sereia - Branca", parseNomeItag("Oversized - A Gigante Sereia - Branca - M", "M"))
+    }
+
+    @Test fun semTamanhoNoNome() {
+        assertEquals("Oversized" to "A Gigante Sereia - Branca", parseNomeItag("Oversized - A Gigante Sereia - Branca", "G"))
+    }
+
+    @Test fun soTamanhoRestandoViraSemNome() {
+        assertEquals("Cropped" to "Sem nome", parseNomeItag("Cropped - M", "M"))
+    }
+
     @Test fun semSeparador() {
         assertEquals("Outros" to "Camiseta lisa", parseNomeItag("  Camiseta lisa ", "P"))
     }
