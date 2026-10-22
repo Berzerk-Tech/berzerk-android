@@ -72,6 +72,9 @@ data class ConferirResponse(val sessaoId: String)
 data class TamanhoForaDto(val tamanho: String, val pct: Double = 0.0)
 
 @Serializable
+data class VarianteDto(val tamanho: String, val ean13: String, val sku: String? = null)
+
+@Serializable
 data class ConferenciaLoteItemDto(
     val loteId: String,
     val codigo: String,
@@ -115,6 +118,8 @@ data class ConferenciaLoteItemDto(
     val totalEpcsSemCadastro: Int = 0,
     val esperadoFonte: String? = null,
     val galpaoCheckinEm: String? = null,
+    val imagemUrl: String? = null,
+    val variantes: List<VarianteDto> = emptyList(),
 ) {
     val confirmado: Boolean get() = status == "confirmado"
 }

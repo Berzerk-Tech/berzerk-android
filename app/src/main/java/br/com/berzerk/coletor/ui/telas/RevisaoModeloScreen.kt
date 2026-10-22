@@ -50,7 +50,13 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import br.com.berzerk.coletor.api.ApiException
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.ui.comum.ConsoleLeituras
+import br.com.berzerk.coletor.ui.comum.Contador
 import br.com.berzerk.coletor.ui.comum.FotoProduto
+import br.com.berzerk.coletor.ui.comum.LinhaConsole
+import br.com.berzerk.coletor.ui.comum.RodapeLeitura
+import br.com.berzerk.coletor.ui.comum.TileTamanho
+import br.com.berzerk.coletor.ui.comum.TipoLeitura
 import br.com.berzerk.coletor.data.ModeloResumo
 import br.com.berzerk.coletor.data.chaveModelo
 import br.com.berzerk.coletor.data.montarResumos
@@ -72,10 +78,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-
-enum class TipoLeitura { DO_MODELO, OUTRO_MODELO, SEM_CADASTRO }
-
-data class LinhaConsole(val epc: String, val tamanho: String, val modelo: String, val tipo: TipoLeitura)
 
 data class RevisaoModeloUi(
     val resumo: ModeloResumo? = null,
@@ -152,10 +154,10 @@ class RevisaoModeloViewModel(private val chave: String) : ViewModel() {
                     if (chaveModelo(cat, mod) == chave) {
                         doModelo.add(epc)
                         porTamanho[tam] = (porTamanho[tam] ?: 0) + 1
-                        console.addLast(LinhaConsole(fim, tam, mod, TipoLeitura.DO_MODELO))
+                        console.addLast(LinhaConsole(fim, tam, mod, TipoLeitura.DO_ALVO))
                     } else {
                         outros++
-                        console.addLast(LinhaConsole(fim, tam, mod, TipoLeitura.OUTRO_MODELO))
+                        console.addLast(LinhaConsole(fim, tam, mod, TipoLeitura.OUTRO))
                     }
                 }
                 while (console.size > 200) console.removeFirst()
@@ -232,7 +234,7 @@ fun RevisaoModeloScreen(chave: String, voltar: () -> Unit) {
                     linha.forEach { t ->
                         val n = ui.porTamanho[t] ?: 0
                         val eans = resumo?.eanPorTamanho?.get(if (t == "?") "" else t).orEmpty()
-                        TileTamanho(t, n, eans, Modifier.weight(1f))
+                        TileTamanho(t, n, eans.firstOrNull().orEmpty(), Modifier.weight(1f), extra = if (eans.size > 1) "+${eans.size - 1}" else null)
                     }
                     repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -247,26 +249,7 @@ fun RevisaoModeloScreen(chave: String, voltar: () -> Unit) {
             }
 
             // 4. Console
-            Text("$ ${ui.unicos} etiquetas únicas · ${ui.leituras} leituras", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TextoFraco)
-            val formaConsole = RoundedCornerShape(8.dp)
-            val lista = rememberLazyListState()
-            LaunchedEffect(ui.console) { if (ui.console.isNotEmpty()) lista.scrollToItem(ui.console.lastIndex) }
-            Box(Modifier.fillMaxWidth().height(140.dp).clip(formaConsole).background(Fundo).border(1.dp, Borda, formaConsole).padding(8.dp)) {
-                if (ui.console.isEmpty()) {
-                    Text("Segure o gatilho ou toque em LER.", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
-                } else {
-                    LazyColumn(state = lista) {
-                        itemsIndexed(ui.console) { _, l ->
-                            val (cor, texto) = when (l.tipo) {
-                                TipoLeitura.DO_MODELO -> Verde to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
-                                TipoLeitura.OUTRO_MODELO -> TextoFraco to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
-                                TipoLeitura.SEM_CADASTRO -> Vermelho to "▸ …${l.epc}  sem cadastro"
-                            }
-                            Text(texto, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = cor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
+            ConsoleLeituras(ui.console, ui.unicos, ui.leituras)
 
             // 5. Salvar
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -293,51 +276,6 @@ fun RevisaoModeloScreen(chave: String, voltar: () -> Unit) {
         }
 
         // 6. Rodapé fixo
-        Row(Modifier.fillMaxWidth().background(Fundo).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(6.dp)).background(Muted).clickable(onClick = vm::zerar),
-                contentAlignment = Alignment.Center,
-            ) { Text("Zerar", style = MaterialTheme.typography.titleSmall, color = Texto) }
-            val habilitado = rfid is RfidEstado.Pronto || rfid is RfidEstado.Lendo
-            Box(
-                Modifier.weight(2.2f).height(56.dp).clip(RoundedCornerShape(6.dp))
-                    .background(if (!habilitado) Muted else if (lendo) Vermelho else Verde)
-                    .clickable(enabled = habilitado) { RfidReader.gatilho(!lendo) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (lendo) "■  PARAR" else "▶  LER", style = MaterialTheme.typography.titleLarge,
-                    color = if (!habilitado) TextoFraco else if (lendo) Texto else Fundo,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TileTamanho(tamanho: String, qtd: Int, eans: List<String>, modifier: Modifier) {
-    val forma = RoundedCornerShape(10.dp)
-    Column(
-        modifier.height(112.dp).background(Muted, forma).border(1.dp, Borda, forma).padding(horizontal = 6.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-    ) {
-        Text(tamanho, style = MaterialTheme.typography.labelLarge, color = TextoFraco)
-        Text("$qtd", style = MaterialTheme.typography.displaySmall, color = if (qtd > 0) Verde else Texto)
-        if (eans.isNotEmpty()) {
-            Text(
-                eans.first() + if (eans.size > 1) " +${eans.size - 1}" else "",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, letterSpacing = 0.sp), color = TextoFraco, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Contador(rotulo: String, valor: Int, cor: Color, modifier: Modifier) {
-    val forma = RoundedCornerShape(10.dp)
-    Column(modifier.background(Cartao, forma).border(1.dp, Borda, forma).padding(10.dp)) {
-        Text(rotulo.uppercase(), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.5.sp), color = TextoFraco, maxLines = 2, minLines = 2)
-        Text("$valor", style = MaterialTheme.typography.headlineSmall, color = cor)
+        RodapeLeitura(lendo, rfid is RfidEstado.Pronto || rfid is RfidEstado.Lendo, aoZerar = vm::zerar, aoLer = { RfidReader.gatilho(!lendo) })
     }
 }

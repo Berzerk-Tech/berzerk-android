@@ -12,6 +12,11 @@ import br.com.berzerk.coletor.api.LiberacaoDto
 import br.com.berzerk.coletor.api.SupervisorDto
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.data.classificarParaLote
+import br.com.berzerk.coletor.data.parseNomeItag
+import br.com.berzerk.coletor.data.tamanhoDaEtiqueta
+import br.com.berzerk.coletor.ui.comum.LinhaConsole
+import br.com.berzerk.coletor.ui.comum.TipoLeitura
 import br.com.berzerk.coletor.rfid.RfidReader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,6 +48,14 @@ data class ConferenciaUi(
     val pergunta: Pergunta? = null,
     val concluido: Boolean = false,
     val mensagem: String? = null,
+    // Vista LOCAL (só console e contadores deste aparelho; a grade vem do Nexus).
+    val doLote: Int = 0,
+    val outros: Int = 0,
+    val semCadastro: Int = 0,
+    val unicos: Int = 0,
+    val leituras: Int = 0,
+    val porTamanhoLocal: Map<String, Int> = emptyMap(),
+    val console: List<LinhaConsole> = emptyList(),
 )
 
 /**
@@ -61,10 +74,28 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
     private var justificativa: JustificativaDto? = null
     private var liberacao: LiberacaoDto? = null
     private var pollJob: Job? = null
+    /** Sobe a cada `zerar()`: envio/classificação que começou antes descarta o resultado. */
+    private var geracao = 0
+
+    // Classificação local (igual à Revisão por modelo)
+    private val classificados = HashSet<String>()
+    private val porTamanhoLocal = HashMap<String, Int>()
+    private val console = ArrayDeque<LinhaConsole>()
+    private var doLote = 0
+    private var outros = 0
+    private var semCadastro = 0
+    private var leituras = 0
+    private var sujo = false
 
     init {
         viewModelScope.launch { abrir() }
-        viewModelScope.launch { RfidReader.leituras.collect { registrar(it.epc) } }
+        viewModelScope.launch { RfidReader.leituras.collect { leituras++; sujo = true; registrar(it.epc) } }
+        viewModelScope.launch {
+            while (isActive) {
+                delay(400)
+                if (sujo) { sujo = false; classificar() }
+            }
+        }
         viewModelScope.launch {
             while (isActive) {
                 delay(4_000)
@@ -105,38 +136,131 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
         if (lidos.add(epc)) _ui.update { it.copy(lidosAqui = lidos.size, pendentesEnvio = lidos.size - enviados) }
     }
 
+    private suspend fun classificar() {
+        // Sem o lote (variantes/produto) ainda, toda leitura cairia em OUTRO pra sempre: espera o poll.
+        val lote = _ui.value.lote
+        if (lote == null) { sujo = true; return }
+        val pendentes = lidos.filter { it !in classificados }
+        if (pendentes.isNotEmpty()) {
+            val variantes = lote.variantes
+            val g = geracao
+            val achados = Graph.itag.resolver(pendentes)
+            if (g != geracao) return // zerou no meio: descarta
+            pendentes.forEach { epc ->
+                classificados.add(epc)
+                val e = achados[epc]
+                val tipo = classificarParaLote(e, variantes, lote.produto)
+                val fim = epc.takeLast(8)
+                if (tipo == TipoLeitura.SEM_CADASTRO || e == null) {
+                    semCadastro++
+                    console.addLast(LinhaConsole(fim, "", "", tipo))
+                } else {
+                    val (_, mod) = parseNomeItag(e.nome, e.tamanho)
+                    val tam = tamanhoDaEtiqueta(e.nome, e.tamanho).ifEmpty { "?" }
+                    if (tipo == TipoLeitura.DO_ALVO) {
+                        doLote++
+                        porTamanhoLocal[tam] = (porTamanhoLocal[tam] ?: 0) + 1
+                    } else outros++
+                    console.addLast(LinhaConsole(fim, tam, mod, tipo))
+                }
+                while (console.size > 200) console.removeFirst()
+            }
+        }
+        publicar()
+    }
+
+    private fun publicar() {
+        _ui.update {
+            it.copy(
+                doLote = doLote, outros = outros, semCadastro = semCadastro, unicos = lidos.size, leituras = leituras,
+                porTamanhoLocal = HashMap(porTamanhoLocal), console = console.toList(),
+            )
+        }
+    }
+
+    /**
+     * Limpa SÓ a vista local (lidos, classificação, console, contadores e controle de envio).
+     * Antes de limpar, sobe o que ainda não foi enviado — Zerar nunca descarta leitura.
+     * O que já subiu pro Nexus continua lá: a grade do Nexus NÃO zera.
+     */
+    fun zerar() {
+        if (_ui.value.confirmando) return
+        viewModelScope.launch {
+            if (!enviarPendentes(forcar = true)) return@launch // erro já está na UI; não perde leitura
+            geracao++
+            lidos.clear(); classificados.clear(); porTamanhoLocal.clear(); console.clear()
+            doLote = 0; outros = 0; semCadastro = 0; leituras = 0; sujo = false
+            enviados = 0; ultimoEnvioHash = 0
+            _ui.update { it.copy(lidosAqui = 0, pendentesEnvio = 0, ultimoEnvio = null) }
+            publicar()
+        }
+    }
+
     fun enviarAgora() { viewModelScope.launch { enviarPendentes(forcar = true) } }
 
-    private suspend fun enviarPendentes(forcar: Boolean = false) {
-        if (_ui.value.enviando) return
+    /** `true` se não há nada a enviar ou o envio deu certo; `false` se falhou (o erro já está na UI). */
+    private suspend fun enviarPendentes(forcar: Boolean = false): Boolean {
+        // Envio periódico em andamento: espera acabar (confirmar não pode seguir sem as leituras)
+        if (_ui.value.enviando) {
+            if (!forcar) return true
+            while (_ui.value.enviando) delay(100)
+        }
         val snapshot = synchronized(lidos) { lidos.toList() }
-        if (snapshot.isEmpty()) return
+        if (snapshot.isEmpty()) return true
         val hash = snapshot.hashCode()
-        if (!forcar && hash == ultimoEnvioHash) return
+        if (!forcar && hash == ultimoEnvioHash) return true
         _ui.update { it.copy(enviando = true) }
+        val g = geracao
         try {
             val r = Graph.upload.enviar(snapshot)
+            if (g != geracao) { // zerou enquanto subia: o snapshot já não existe aqui
+                _ui.update { it.copy(enviando = false) }
+                return true
+            }
             ultimoEnvioHash = hash
             enviados = snapshot.size
             _ui.update { it.copy(enviando = false, pendentesEnvio = lidos.size - enviados, ultimoEnvio = if (r.duplicado == true) "sem novidade" else "${r.epcs} EPCs") }
             atualizar()
+            return true
         } catch (e: ApiException) {
             val msg = if (e.codigo == "coletor_revogado") "Este aparelho foi revogado no Nexus (Revisão RFID → Coletores)." else "Envio falhou: ${e.mensagemCurta()}"
             _ui.update { it.copy(enviando = false, erro = msg) }
         } catch (e: Throwable) {
             _ui.update { it.copy(enviando = false, erro = "Envio falhou: ${e.mensagemCurta()}") }
         }
+        return false
     }
 
-    fun confirmar() {
+    /**
+     * Toda confirmação (primeira ou resposta à cascata de 422) passa por aqui: para a leitura, dá
+     * 300 ms pra última leva de EPCs entrar e sobe o que falta. Sem isso a confirmação iria sem as
+     * últimas leituras (422 `conferencia_sem_leitura` ou divergência falsa). `false` = não confirma.
+     */
+    private suspend fun pararEEnviar(): Boolean {
+        _ui.update { it.copy(confirmando = true, erro = null) }
+        RfidReader.parar()
+        delay(300)
+        if (enviarPendentes(forcar = true)) return true
+        _ui.update { it.copy(confirmando = false) }
+        return false
+    }
+
+    private fun confirmarCom(body: ConfirmarBody) {
+        if (_ui.value.confirmando) return
         viewModelScope.launch {
-            enviarPendentes()
-            tentarConfirmar(ConfirmarBody())
+            if (!pararEEnviar()) return@launch
+            tentarConfirmar(body)
         }
     }
 
+    fun confirmar() = confirmarCom(ConfirmarBody())
+
     private suspend fun tentarConfirmar(body: ConfirmarBody) {
-        val sessaoId = _ui.value.sessaoId ?: return
+        val sessaoId = _ui.value.sessaoId
+        if (sessaoId == null) {
+            _ui.update { it.copy(confirmando = false, erro = "Sessão de conferência não aberta.") }
+            return
+        }
         _ui.update { it.copy(confirmando = true, pergunta = null, erro = null) }
         try {
             val r = Graph.api.confirmar(sessaoId, loteId, body)
@@ -164,18 +288,18 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
 
     /** Operador viu a diferença e aceita: manda a vista exata, mais o que já respondeu antes. */
     fun aceitarDivergencia(erro: DivergenciaErro) {
-        viewModelScope.launch { tentarConfirmar(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao)) }
+        confirmarCom(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao))
     }
 
     fun justificar(erro: DivergenciaErro, causa: String, motivo: String) {
         justificativa = JustificativaDto(causa, motivo.trim())
-        viewModelScope.launch { tentarConfirmar(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao)) }
+        confirmarCom(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao))
     }
 
     fun liberar(erro: DivergenciaErro, supervisorId: String, pin: String, motivo: String, causa: String?, motivoJust: String?) {
         liberacao = LiberacaoDto(supervisorId, pin.trim(), motivo.trim())
         if (causa != null && !motivoJust.isNullOrBlank()) justificativa = JustificativaDto(causa, motivoJust.trim())
-        viewModelScope.launch { tentarConfirmar(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao)) }
+        confirmarCom(ConfirmarBody(aceitarDivergencia = true, divergenciaVista = erro.diferencaPorTamanho, justificativa = justificativa, liberacao = liberacao))
     }
 
     fun fecharPergunta() { _ui.update { it.copy(pergunta = null) } }

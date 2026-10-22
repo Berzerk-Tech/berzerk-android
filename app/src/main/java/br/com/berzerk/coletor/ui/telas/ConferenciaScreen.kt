@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -44,12 +48,15 @@ import br.com.berzerk.coletor.api.DivergenciaErro
 import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
-import br.com.berzerk.coletor.ui.comum.Cabecalho
-import br.com.berzerk.coletor.ui.comum.Cartao
+import br.com.berzerk.coletor.ui.comum.ConsoleLeituras
+import br.com.berzerk.coletor.ui.comum.Contador
+import br.com.berzerk.coletor.ui.comum.FotoProduto
+import br.com.berzerk.coletor.ui.comum.RodapeLeitura
+import br.com.berzerk.coletor.ui.comum.TileTamanho
 import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.comum.ordenarTamanhos
 import br.com.berzerk.coletor.ui.theme.Ambar
-import br.com.berzerk.coletor.ui.theme.Borda
+import br.com.berzerk.coletor.ui.theme.Fundo
 import br.com.berzerk.coletor.ui.theme.Preto
 import br.com.berzerk.coletor.ui.theme.SuperficieAlta
 import br.com.berzerk.coletor.ui.theme.Texto
@@ -65,96 +72,99 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
     val lote = ui.lote
     val lendo = rfid is RfidEstado.Lendo
 
-    Column(Modifier.fillMaxSize()) {
-        Cabecalho(lote?.codigo ?: "Conferência", listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ").ifEmpty { null }, aoVoltar = voltar, rotulo = "Recebimento")
+    Column(Modifier.fillMaxSize().background(Fundo)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // 1. Topo (igual ao da Revisão por modelo)
+            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                FotoProduto(lote?.imagemUrl, 56.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SeloCategoria(lote?.statusNome ?: "Lote")
+                        Spacer(Modifier.width(8.dp))
+                        Text("LOTE ${lote?.codigo ?: "…"}", style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    val sub = listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ")
+                    if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = voltar, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = TextoFraco)
+                }
+            }
 
-        if (ui.carregando) {
-            Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
-            return@Column
-        }
+            if (ui.erro != null) Text(ui.erro!!, color = Vermelho, style = MaterialTheme.typography.bodyMedium)
+            if (ui.carregando) Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
 
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (ui.erro != null) Cartao { Text(ui.erro!!, color = Vermelho) }
             if (lote != null) {
-                // Totais
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                    Column {
-                        Rotulo("Lido")
-                        Text("${lote.lidoTotal}", style = MaterialTheme.typography.displayLarge, color = corDaDiferenca(lote.lidoTotal - lote.esperadoTotal))
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Rotulo("Esperado" + (lote.esperadoFonte?.let { " ($it)" } ?: ""))
-                        Text("${lote.esperadoTotal}", style = MaterialTheme.typography.headlineMedium, color = TextoFraco)
-                        val dif = lote.lidoTotal - lote.esperadoTotal
-                        Text(if (dif == 0) "bateu" else (if (dif > 0) "+$dif" else "$dif"), color = corDaDiferenca(dif), fontWeight = FontWeight.Bold)
-                    }
-                }
-                // Grade
-                val tamanhos = ordenarTamanhos(lote.esperadoPorTamanho.keys + lote.lidoPorTamanho.keys)
-                LazyVerticalGrid(columns = GridCells.Fixed(3), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(((tamanhos.size + 2) / 3 * 92).dp)) {
-                    items(tamanhos) { t ->
-                        val lido = lote.lidoPorTamanho[t] ?: 0
-                        val esperado = lote.esperadoPorTamanho[t] ?: 0
-                        val dif = lido - esperado
-                        Column(Modifier.background(SuperficieAlta, RoundedCornerShape(8.dp)).padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(t, style = MaterialTheme.typography.labelLarge, color = TextoFraco)
-                            Text("$lido", style = MaterialTheme.typography.headlineMedium, color = corDaDiferenca(dif))
-                            Text("de $esperado" + (if (dif != 0) "  (${if (dif > 0) "+" else ""}$dif)" else ""), style = MaterialTheme.typography.labelSmall, color = TextoFraco)
+                // 2. Grade por tamanho: lido × esperado vêm do Nexus (que decide); EAN vem das variantes do lote
+                val tamanhos = ordenarTamanhos(lote.esperadoPorTamanho.keys + lote.lidoPorTamanho.keys + lote.variantes.map { it.tamanho })
+                tamanhos.chunked(3).forEach { linha ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        linha.forEach { t ->
+                            val lido = lote.lidoPorTamanho[t] ?: 0
+                            val esperado = lote.esperadoPorTamanho[t] ?: 0
+                            val dif = lido - esperado
+                            TileTamanho(
+                                t, lido, lote.variantes.firstOrNull { it.tamanho == t }?.ean13.orEmpty(), Modifier.weight(1f),
+                                rodape = "de $esperado" + if (dif != 0) " (${if (dif > 0) "+" else ""}$dif)" else "",
+                                corNumero = corDaDiferenca(dif),
+                            )
                         }
+                        repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-                if (lote.totalEpcsOutroLote > 0 || lote.totalEpcsDesconhecidos > 0) {
-                    Text(
-                        listOfNotNull(
-                            lote.totalEpcsOutroLote.takeIf { it > 0 }?.let { "$it de outro lote" },
-                            lote.totalEpcsDesconhecidos.takeIf { it > 0 }?.let { "$it sem cadastro" },
-                        ).joinToString(" · "),
-                        color = Ambar, style = MaterialTheme.typography.bodyMedium,
-                    )
+
+                // 3. Contadores
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Contador("Do lote", lote.lidoTotal, Verde, Modifier.weight(1f))
+                    Contador("Outro lote", lote.totalEpcsOutroLote, TextoFraco, Modifier.weight(1f))
+                    Contador("Sem cadastro", lote.totalEpcsDesconhecidos, Vermelho, Modifier.weight(1f))
+                    Contador("Total lidas", ui.unicos, Texto, Modifier.weight(1f))
                 }
+                val dif = lote.lidoTotal - lote.esperadoTotal
+                Text(
+                    "Esperado ${lote.esperadoTotal}" + (lote.esperadoFonte?.let { " ($it)" } ?: "") + " · Lido ${lote.lidoTotal} · " +
+                        (if (dif == 0) "bateu" else if (dif > 0) "+$dif" else "$dif"),
+                    style = MaterialTheme.typography.bodySmall, color = corDaDiferenca(dif),
+                )
                 if (lote.diverge && lote.exigePin == true) Text("Divergência acima da tolerância: a confirmação exige PIN de supervisor.", color = Ambar, style = MaterialTheme.typography.bodyMedium)
             }
-            // Leitura local
-            Cartao {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Rotulo("Neste aparelho"); Text("${ui.lidosAqui} etiquetas", color = Texto, fontWeight = FontWeight.SemiBold) }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Rotulo("Envio")
-                        Text(
-                            when {
-                                ui.enviando -> "enviando…"
-                                ui.pendentesEnvio > 0 -> "${ui.pendentesEnvio} a enviar"
-                                ui.ultimoEnvio != null -> "ok (${ui.ultimoEnvio})"
-                                else -> "—"
-                            },
-                            color = if (ui.pendentesEnvio > 0) Ambar else Verde,
-                        )
-                    }
-                }
-            }
+
+            // 4. Console local
+            ConsoleLeituras(ui.console, ui.unicos, ui.leituras)
+
+            // 5. Envio
+            Text(
+                "Neste aparelho ${ui.lidosAqui} etiquetas · Envio: " + when {
+                    ui.enviando -> "enviando…"
+                    ui.pendentesEnvio > 0 -> "${ui.pendentesEnvio} a enviar"
+                    ui.ultimoEnvio != null -> "ok (${ui.ultimoEnvio})"
+                    else -> "—"
+                },
+                style = MaterialTheme.typography.bodySmall, color = if (ui.pendentesEnvio > 0) Ambar else TextoFraco,
+            )
+            val estadoRfid = rfid
+            if (estadoRfid is RfidEstado.Erro) Text(estadoRfid.motivo, color = Vermelho, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(4.dp))
         }
 
-        // Ações fixas embaixo
-        Column(Modifier.fillMaxWidth().background(Preto).padding(16.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (ui.concluido) {
+        // 6. Rodapé fixo
+        if (ui.concluido) {
+            Column(Modifier.fillMaxWidth().background(Fundo).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(ui.mensagem ?: "Conferido.", color = Verde, fontWeight = FontWeight.SemiBold)
                 BotaoGrande("Voltar à lista", onClick = voltar)
-            } else {
-                val estadoRfid = rfid
-                BotaoGrande(
-                    texto = if (lendo) "■  Parar" else "▶  Ler (ou segure o gatilho)",
-                    onClick = { if (lendo) RfidReader.gatilho(false) else RfidReader.gatilho(true) },
-                    cor = if (lendo) Vermelho else Texto,
-                    corTexto = if (lendo) Texto else Preto,
-                    habilitado = estadoRfid is RfidEstado.Pronto || estadoRfid is RfidEstado.Lendo,
-                )
-                if (estadoRfid is RfidEstado.Erro) Text(estadoRfid.motivo, color = Vermelho, style = MaterialTheme.typography.bodyMedium)
+            }
+        } else {
+            RodapeLeitura(
+                lendo = lendo, habilitado = !ui.confirmando && (rfid is RfidEstado.Pronto || rfid is RfidEstado.Lendo),
+                aoZerar = vm::zerar, aoLer = { RfidReader.gatilho(!lendo) },
+                zerarHabilitado = !ui.confirmando && !ui.enviando,
+            ) {
                 BotaoGrande(
                     texto = if (ui.confirmando) "Confirmando…" else "✓  Confirmar conferência",
                     onClick = { vm.confirmar() },
                     cor = Verde, corTexto = Preto,
-                    habilitado = !ui.confirmando && lote != null && !lendo,
+                    habilitado = !ui.confirmando && lote != null,
                 )
             }
         }
