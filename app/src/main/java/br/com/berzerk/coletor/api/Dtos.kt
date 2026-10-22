@@ -68,6 +68,14 @@ data class SupervisoresResponse(val supervisores: List<SupervisorDto> = emptyLis
 @Serializable
 data class ConferirResponse(val sessaoId: String)
 
+/** Outro lote visto na sessão (`conferenciaLoteOutroLoteDtoSchema`) — objeto, não string. */
+@Serializable
+data class OutroLoteDto(val loteId: String = "", val codigo: String = "", val produto: String? = null, val cor: String? = null, val total: Int = 0)
+
+/** Produto sem lote visto na sessão (`conferenciaLoteOutroProdutoDtoSchema`). */
+@Serializable
+data class OutroProdutoDto(val sku: String? = null, val ean13: String? = null, val nome: String? = null, val total: Int = 0)
+
 @Serializable
 data class TamanhoForaDto(val tamanho: String, val pct: Double = 0.0)
 
@@ -112,9 +120,9 @@ data class ConferenciaLoteItemDto(
     val primeiraLeituraEm: String? = null,
     val ultimaLeituraEm: String? = null,
     val totalEpcsOutroLote: Int = 0,
-    val outrosLotes: List<String> = emptyList(),
+    val outrosLotes: List<OutroLoteDto> = emptyList(),
     val totalEpcsDesconhecidos: Int = 0,
-    val outrosProdutos: List<String> = emptyList(),
+    val outrosProdutos: List<OutroProdutoDto> = emptyList(),
     val totalEpcsSemCadastro: Int = 0,
     val esperadoFonte: String? = null,
     val galpaoCheckinEm: String? = null,

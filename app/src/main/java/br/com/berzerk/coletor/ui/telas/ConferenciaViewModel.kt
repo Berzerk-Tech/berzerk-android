@@ -129,7 +129,11 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
                 val lote = resumo.lotes.firstOrNull { it.loteId == loteId }
                 _ui.update { it.copy(lote = lote ?: it.lote, erro = if (lote == null) "O lote saiu da sessão." else null) }
             }
-            .onFailure { e -> Log.w("Conferencia", "poll: ${e.mensagemCurta()}") }
+            .onFailure { e ->
+                Log.w("Conferencia", "poll: ${e.mensagemCurta()}", e)
+                // Sem o lote a tela fica vazia e o Confirmar desabilitado: erro de poll (parse, rede) tem que aparecer.
+                if (_ui.value.lote == null) _ui.update { it.copy(erro = "Não carregou a conferência: ${e.mensagemCurta()}") }
+            }
     }
 
     private fun registrar(epc: String) {
