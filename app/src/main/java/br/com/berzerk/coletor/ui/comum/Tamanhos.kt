@@ -5,3 +5,6 @@ private val ORDEM = listOf("PP", "P", "M", "G", "GG", "XG", "G1", "G2", "G3", "X
 
 fun ordenarTamanhos(tamanhos: Collection<String>): List<String> =
     tamanhos.distinct().sortedWith(compareBy({ ORDEM.indexOf(it.uppercase()).let { i -> if (i < 0) 999 else i } }, { it }))
+
+/** `true` se o texto é um tamanho da régua (PP, P, M, G, GG…). */
+fun ehTamanhoDaRegua(texto: String): Boolean = ORDEM.contains(texto.trim().uppercase())

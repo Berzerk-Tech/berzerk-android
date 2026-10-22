@@ -151,7 +151,7 @@ fun LeituraScreen(voltar: () -> Unit, irConfig: () -> Unit) {
     val lendo = rfid is RfidEstado.Lendo
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho("Leitura livre", "${ui.totalEpcs} etiquetas" + (if (ui.semCadastro > 0) " · ${ui.semCadastro} sem cadastro" else ""), aoVoltar = voltar, rotulo = "Berzerk Nexus", acao = {
+        Cabecalho("Ler tudo", "${ui.totalEpcs} etiquetas" + (if (ui.semCadastro > 0) " · ${ui.semCadastro} sem cadastro" else ""), aoVoltar = voltar, rotulo = "Berzerk Nexus", acao = {
             TextButton(onClick = vm::limpar) { Text("Limpar", color = TextoFraco) }
         })
         if (ui.baseVazia) Cartao(Modifier.padding(horizontal = 16.dp)) {
