@@ -76,15 +76,17 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // 1. Topo (igual ao da Revisão por modelo)
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                FotoProduto(lote?.imagemUrl, 56.dp)
+                // Enquanto o primeiro resumo não chega, a prévia do card da lista preenche o topo e a grade esperada.
+                val previa = ui.previa
+                FotoProduto(lote?.imagemUrl ?: previa?.imagemUrl, 56.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        SeloCategoria(lote?.statusNome ?: "Lote")
+                        SeloCategoria(lote?.statusNome ?: previa?.statusNome ?: "Lote")
                         Spacer(Modifier.width(8.dp))
-                        Text("LOTE ${lote?.codigo ?: "…"}", style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("LOTE ${lote?.codigo ?: previa?.codigo ?: "…"}", style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    val sub = listOfNotNull(lote?.produto, lote?.cor).joinToString(" · ")
+                    val sub = listOfNotNull(lote?.produto ?: previa?.produto, lote?.cor ?: previa?.cor).joinToString(" · ")
                     if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(onClick = voltar, modifier = Modifier.size(36.dp)) {
@@ -93,7 +95,25 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
             }
 
             if (ui.erro != null) Text(ui.erro!!, color = Vermelho, style = MaterialTheme.typography.bodyMedium)
-            if (ui.carregando) Row(Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
+            if (ui.carregando) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = TextoFraco)
+                    Text("Carregando as leituras do Nexus…", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                }
+            }
+
+            val previa = ui.previa
+            if (lote == null && previa != null && previa.esperadoPorTamanho.isNotEmpty()) {
+                // Grade esperada do card, sem lido ainda (cinza): some quando o resumo chega.
+                ordenarTamanhos(previa.esperadoPorTamanho.keys).chunked(3).forEach { linha ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        linha.forEach { t ->
+                            TileTamanho(t, 0, "", Modifier.weight(1f), rodape = "de ${previa.esperadoPorTamanho[t] ?: 0}", corNumero = TextoFraco)
+                        }
+                        repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
 
             if (lote != null) {
                 // 2. Grade por tamanho: lido × esperado vêm do Nexus (que decide); EAN vem das variantes do lote
