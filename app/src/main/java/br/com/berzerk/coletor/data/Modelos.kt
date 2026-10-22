@@ -23,8 +23,19 @@ fun parseNomeItag(nome: String?, tamanho: String?): Pair<String, String> {
     return categoria to modelo
 }
 
-/** Versão do índice `modelos` (regra de `parseNomeItag`); mudou → reindexa. */
-const val VERSAO_INDICE = 2
+/**
+ * Tamanho da etiqueta: o campo `tamanho` da iTag e, quando ele vem vazio (etiquetas antigas, ex.
+ * "Oversized - A Gigante Sereia - G - Branca"), o segmento do nome que está na régua. `""` se não há.
+ */
+fun tamanhoDaEtiqueta(nome: String?, tamanho: String?): String {
+    val t = tamanho?.trim().orEmpty()
+    if (t.isNotEmpty()) return t.uppercase()
+    val partes = nome?.split(" - ")?.drop(1)?.map { it.trim() }.orEmpty()
+    return partes.firstOrNull { ehTamanhoDaRegua(it) }?.uppercase().orEmpty()
+}
+
+/** Versão do índice `modelos` (regra de `parseNomeItag`/`tamanhoDaEtiqueta`); mudou → reindexa. */
+const val VERSAO_INDICE = 3
 
 /** `"POLIAMIDA tech"` → `"Poliamida Tech"`. */
 fun capitalizarCategoria(texto: String): String =
@@ -80,7 +91,7 @@ fun indexarLinhas(agregadas: List<LinhaAgregada>): List<ModeloEntity> {
     val mapa = LinkedHashMap<List<String>, Int>()
     agregadas.forEach { l ->
         val (cat, mod) = parseNomeItag(l.nome, l.tamanho)
-        val k = listOf(cat, mod, l.tamanho?.trim()?.uppercase().orEmpty(), l.ean13?.trim().orEmpty())
+        val k = listOf(cat, mod, tamanhoDaEtiqueta(l.nome, l.tamanho), l.ean13?.trim().orEmpty())
         mapa[k] = (mapa[k] ?: 0) + l.qtd
     }
     return mapa.map { (k, qtd) -> ModeloEntity(k[0], k[1], k[2], k[3], qtd) }

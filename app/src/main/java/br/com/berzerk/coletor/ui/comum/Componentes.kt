@@ -38,7 +38,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -47,7 +46,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.memory.MemoryCache
+import coil.request.ImageRequest
 import br.com.berzerk.coletor.R
 import br.com.berzerk.coletor.ui.theme.Borda
 import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
@@ -185,7 +187,7 @@ fun LacunaH(largura: Dp = 8.dp) = Spacer(Modifier.width(largura))
  * o zoom aproxima a estampa). Toque abre a foto inteira em tela cheia, sem disparar o clique do card.
  */
 @Composable
-fun FotoProduto(url: String?, tamanho: Dp, modifier: Modifier = Modifier, zoom: Float = 1.6f) {
+fun FotoProduto(url: String?, tamanho: Dp, modifier: Modifier = Modifier) {
     val forma = RoundedCornerShape(6.dp)
     var ampliada by remember { mutableStateOf(false) }
     Box(modifier.size(tamanho).clip(forma).background(Fundo).let { if (url != null) it.clickable { ampliada = true } else it }) {
@@ -193,9 +195,8 @@ fun FotoProduto(url: String?, tamanho: Dp, modifier: Modifier = Modifier, zoom: 
             AsyncImage(
                 model = url,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.Center,
-                modifier = Modifier.size(tamanho).graphicsLayer { scaleX = zoom; scaleY = zoom },
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(tamanho),
             )
         }
     }
@@ -206,9 +207,14 @@ fun FotoProduto(url: String?, tamanho: Dp, modifier: Modifier = Modifier, zoom: 
 private fun FotoTelaCheia(url: String, fechar: () -> Unit) {
     // Shopify serve a versão pelo `?width=`: no diálogo pede a grande.
     val grande = remember(url) { url.replace(Regex("([?&])width=\\d+"), "$1width=1200") }
+    val contexto = LocalContext.current
+    // Abre na hora com a miniatura que já está no cache de memória (chave = url pequena) e troca pela grande quando chegar.
+    val pedido = remember(url) {
+        ImageRequest.Builder(contexto).data(grande).placeholderMemoryCacheKey(MemoryCache.Key(url)).crossfade(false).build()
+    }
     Dialog(onDismissRequest = fechar, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black).clickable(onClick = fechar), contentAlignment = Alignment.Center) {
-            AsyncImage(model = grande, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            AsyncImage(model = pedido, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
     }
 }
