@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.berzerk.coletor.api.LoteElegivelDto
+import br.com.berzerk.coletor.data.PreviaLotes
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.ui.comum.Cabecalho
@@ -67,7 +68,7 @@ fun RecebimentoScreen(voltar: () -> Unit, abrirLote: (String) -> Unit) {
         if (busca.isNotEmpty()) delay(350)
         carregando = true
         runCatching { Graph.api.lotesElegiveis(busca = busca.trim().ifEmpty { null }) }
-            .onSuccess { lotes = it.lotes; erro = null }
+            .onSuccess { lotes = it.lotes; erro = null; PreviaLotes.guardar(it.lotes) }
             .onFailure { erro = it.mensagemCurta() }
         carregando = false
     }

@@ -9,9 +9,11 @@ import br.com.berzerk.coletor.api.ConfirmarBody
 import br.com.berzerk.coletor.api.DivergenciaErro
 import br.com.berzerk.coletor.api.JustificativaDto
 import br.com.berzerk.coletor.api.LiberacaoDto
+import br.com.berzerk.coletor.api.LoteElegivelDto
 import br.com.berzerk.coletor.api.SupervisorDto
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.data.PreviaLotes
 import br.com.berzerk.coletor.data.classificarParaLote
 import br.com.berzerk.coletor.data.parseNomeItag
 import br.com.berzerk.coletor.data.tamanhoDaEtiqueta
@@ -38,7 +40,9 @@ sealed interface Pergunta {
 data class ConferenciaUi(
     val sessaoId: String? = null,
     val lote: ConferenciaLoteItemDto? = null,
+    /** Até o PRIMEIRO resumo do Nexus chegar (ou falhar). A prévia do card preenche a tela antes. */
     val carregando: Boolean = true,
+    val previa: LoteElegivelDto? = null,
     val erro: String? = null,
     val lidosAqui: Int = 0,
     val pendentesEnvio: Int = 0,
@@ -65,7 +69,7 @@ data class ConferenciaUi(
  * conferência → `confirmar`, tratando os 422 em cascata.
  */
 class ConferenciaViewModel(private val loteId: String) : ViewModel() {
-    private val _ui = MutableStateFlow(ConferenciaUi())
+    private val _ui = MutableStateFlow(ConferenciaUi(previa = PreviaLotes.pegar(loteId)))
     val ui: StateFlow<ConferenciaUi> = _ui
 
     private val lidos = LinkedHashSet<String>()
@@ -107,7 +111,7 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
     private suspend fun abrir() {
         runCatching { Graph.api.conferir(loteId) }
             .onSuccess { resp ->
-                _ui.update { it.copy(sessaoId = resp.sessaoId, carregando = false, erro = null) }
+                _ui.update { it.copy(sessaoId = resp.sessaoId, erro = null) }
                 pollJob?.cancel()
                 pollJob = viewModelScope.launch {
                     while (isActive) {
@@ -127,12 +131,12 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
         runCatching { Graph.api.conferencia(sessaoId) }
             .onSuccess { resumo ->
                 val lote = resumo.lotes.firstOrNull { it.loteId == loteId }
-                _ui.update { it.copy(lote = lote ?: it.lote, erro = if (lote == null) "O lote saiu da sessão." else null) }
+                _ui.update { it.copy(lote = lote ?: it.lote, carregando = false, erro = if (lote == null) "O lote saiu da sessão." else null) }
             }
             .onFailure { e ->
                 Log.w("Conferencia", "poll: ${e.mensagemCurta()}", e)
                 // Sem o lote a tela fica vazia e o Confirmar desabilitado: erro de poll (parse, rede) tem que aparecer.
-                if (_ui.value.lote == null) _ui.update { it.copy(erro = "Não carregou a conferência: ${e.mensagemCurta()}") }
+                if (_ui.value.lote == null) _ui.update { it.copy(carregando = false, erro = "Não carregou a conferência: ${e.mensagemCurta()}") }
             }
     }
 
