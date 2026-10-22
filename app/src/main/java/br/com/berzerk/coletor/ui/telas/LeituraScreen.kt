@@ -33,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.data.EpcEntity
+import br.com.berzerk.coletor.data.tamanhoDaEtiqueta
 import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
@@ -107,7 +108,7 @@ class LeituraViewModel : ViewModel() {
         lidos.forEach { epc ->
             val e = resolvidos[epc]
             if (e == null || e.nome.isNullOrBlank()) { semCadastro++; return@forEach }
-            val tam = (e.tamanho ?: "?").uppercase()
+            val tam = tamanhoDaEtiqueta(e.nome, e.tamanho).ifEmpty { "?" }
             val mapa = porNome.getOrPut(e.nome) { LinkedHashMap() }
             mapa[tam] = (mapa[tam] ?: 0) + 1
             if (eanPorNome[e.nome] == null) eanPorNome[e.nome] = e.ean13

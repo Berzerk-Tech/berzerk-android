@@ -55,6 +55,7 @@ import br.com.berzerk.coletor.data.ModeloResumo
 import br.com.berzerk.coletor.data.chaveModelo
 import br.com.berzerk.coletor.data.montarResumos
 import br.com.berzerk.coletor.data.parseNomeItag
+import br.com.berzerk.coletor.data.tamanhoDaEtiqueta
 import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.theme.Borda
@@ -147,7 +148,7 @@ class RevisaoModeloViewModel(private val chave: String) : ViewModel() {
                     console.addLast(LinhaConsole(fim, "", "", TipoLeitura.SEM_CADASTRO))
                 } else {
                     val (cat, mod) = parseNomeItag(e.nome, e.tamanho)
-                    val tam = e.tamanho?.trim()?.uppercase().orEmpty().ifEmpty { "?" }
+                    val tam = tamanhoDaEtiqueta(e.nome, e.tamanho).ifEmpty { "?" }
                     if (chaveModelo(cat, mod) == chave) {
                         doModelo.add(epc)
                         porTamanho[tam] = (porTamanho[tam] ?: 0) + 1

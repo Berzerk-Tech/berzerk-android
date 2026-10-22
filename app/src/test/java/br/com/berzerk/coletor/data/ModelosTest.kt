@@ -46,6 +46,14 @@ class ModelosTest {
         assertEquals("Outros" to "Sem nome", parseNomeItag("  ", "P"))
     }
 
+    @Test fun tamanhoDaEtiquetaUsaOCampoOuONome() {
+        assertEquals("G", tamanhoDaEtiqueta("Oversized - A Gigante Sereia - M - Branca", "g"))
+        assertEquals("M", tamanhoDaEtiqueta("Oversized - A Gigante Sereia - M - Branca", null))
+        assertEquals("XG", tamanhoDaEtiqueta("Oversized - Alfa - xg", ""))
+        assertEquals("", tamanhoDaEtiqueta("Oversized - Alfa", null))
+        assertEquals("", tamanhoDaEtiqueta(null, null))
+    }
+
     @Test fun categoriaNormalizada() {
         assertEquals("Poliamida Tech" to "Zeta", parseNomeItag("POLIAMIDA tech - Zeta - P", "P"))
     }
