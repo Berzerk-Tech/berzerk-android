@@ -76,6 +76,9 @@ class ItagSync(
     @Volatile private var callAtual: Call? = null
     @Volatile private var cacheImagens: CacheImagens? = null
     private val mutexIndice = Mutex()
+    /** Operador pausou o download nesta execução: a atualização automática não religa sozinha. */
+    @Volatile private var pausadaPeloOperador = false
+    @Volatile private var ultimaTentativaAuto = 0L
 
     suspend fun carregarStatus() {
         val estado = dao.estado()
@@ -114,12 +117,35 @@ class ItagSync(
 
     fun iniciar() {
         if (job?.isActive == true) return
+        pausadaPeloOperador = false
         job = scope.launch(Dispatchers.IO) { rodar() }
+    }
+
+    /**
+     * Atualização automática (abertura do app, volta pro primeiro plano, checagem horária): roda
+     * `iniciar()` se a base está vazia, nunca concluiu ou concluiu há mais de [BASE_VALIDADE_MS].
+     * O delta é só o que mudou desde o último `desde`, então chamar isso a toda abertura é barato.
+     * Não religa um download que o operador pausou nesta execução nem repete tentativa (erro de
+     * rede, por exemplo) em menos de [AUTO_INTERVALO_MS].
+     */
+    fun atualizarSeVelha() {
+        if (job?.isActive == true || pausadaPeloOperador) return
+        val agora = System.currentTimeMillis()
+        if (agora - ultimaTentativaAuto < AUTO_INTERVALO_MS) return
+        ultimaTentativaAuto = agora
+        scope.launch(Dispatchers.IO) {
+            val concluidoEm = dao.estado()?.concluidoEm
+            val velha = concluidoEm == null || agora - concluidoEm > BASE_VALIDADE_MS
+            if (velha || dao.total() == 0L) {
+                Log.i(TAG, "base ${if (concluidoEm == null) "nunca concluída" else "concluída há ${(agora - concluidoEm) / 3600_000} h"}: atualizando sozinho")
+                iniciar()
+            }
+        }
     }
 
     /** Pausa: o status já mostra "Pausando…" e o download em andamento (OkHttp) é cancelado. */
     fun cancelar() {
-        if (job?.isActive == true) fase("Pausando…", _status.value.pct)
+        if (job?.isActive == true) { fase("Pausando…", _status.value.pct); pausadaPeloOperador = true }
         job?.cancel()
         callAtual?.cancel()
     }
@@ -388,6 +414,10 @@ class ItagSync(
         private const val LOTE = 100_000
         private const val PEDACO = 2_000
         private const val IMAGENS_VALIDADE_MS = 24 * 3600_000L
+        /** Idade máxima da base antes de a atualização automática rodar. */
+        private const val BASE_VALIDADE_MS = 24 * 3600_000L
+        /** Intervalo mínimo entre tentativas automáticas (não martelar o Nexus sem rede). */
+        private const val AUTO_INTERVALO_MS = 60 * 60_000L
         private const val SNAPSHOT_ESPERA_MAX = 12
         private const val SNAPSHOT_ESPERA_MS = 15_000L
     }

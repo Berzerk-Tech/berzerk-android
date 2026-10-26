@@ -56,6 +56,8 @@ fun App() {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(Unit) { Graph.update.verificar() }
+    // Base iTag: atualiza sozinha ao logar/abrir, ao voltar pro primeiro plano e a cada hora (régua de 24 h dentro do ItagSync).
+    LaunchedEffect(sessao) { if (sessao is SessaoEstado.Logado) Graph.itag.atualizarSeVelha() }
     LaunchedEffect(sessao) {
         // Conta do aparelho caiu (refresh recusado, "Sair da conta do aparelho"): leva a sessão de operador junto e volta pro login.
         if (sessao is SessaoEstado.Deslogado) {
@@ -70,16 +72,21 @@ fun App() {
             nav.navigate(Rotas.FACIAL) { popUpTo(0) { inclusive = true } }
         }
     }
-    // Inatividade de 15 min: confere a cada 30 s e ao voltar pro app.
+    // Inatividade de 15 min: confere a cada 30 s e ao voltar pro app. A cada 120 voltas (1 h) confere a base também.
     LaunchedEffect(Unit) {
+        var voltas = 0
         while (true) {
             delay(30_000)
             if (Graph.operador.inativoOuExpirado()) Graph.operador.encerrar()
+            if (++voltas % 120 == 0 && Graph.auth.sessao.value is SessaoEstado.Logado) Graph.itag.atualizarSeVelha()
         }
     }
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME && Graph.operador.inativoOuExpirado()) Graph.operador.encerrar()
+            if (e == Lifecycle.Event.ON_RESUME) {
+                if (Graph.operador.inativoOuExpirado()) Graph.operador.encerrar()
+                if (Graph.auth.sessao.value is SessaoEstado.Logado) Graph.itag.atualizarSeVelha()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
