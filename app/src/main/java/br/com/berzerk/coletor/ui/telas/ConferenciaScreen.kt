@@ -128,7 +128,7 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
                             TileTamanho(
                                 t, lido, lote.variantes.firstOrNull { it.tamanho == t }?.ean13.orEmpty(), Modifier.weight(1f),
                                 rodape = "de $esperado" + if (dif != 0) " (${if (dif > 0) "+" else ""}$dif)" else "",
-                                corNumero = corDaDiferenca(dif),
+                                corNumero = corDaDiferenca(dif, esperado, lote.toleranciaTamanhoPct),
                             )
                         }
                         repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
@@ -147,7 +147,7 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
                 Text(
                     "Nexus: esperado ${lote.esperadoTotal}" + (lote.esperadoFonte?.let { " ($it)" } ?: "") + " · lido ${lote.lidoTotal} · " +
                         (if (dif == 0) "bateu" else if (dif > 0) "+$dif" else "$dif"),
-                    style = MaterialTheme.typography.bodySmall, color = corDaDiferenca(dif),
+                    style = MaterialTheme.typography.bodySmall, color = corDaDiferenca(dif, lote.esperadoTotal, lote.toleranciaPct),
                 )
                 if (lote.diverge && lote.exigePin == true) Text("Divergência acima da tolerância: a confirmação exige PIN de supervisor.", color = Ambar, style = MaterialTheme.typography.bodyMedium)
             }
@@ -200,10 +200,14 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
     }
 }
 
-private fun corDaDiferenca(dif: Int): Color = when {
-    dif == 0 -> Verde
-    dif < 0 -> Vermelho
-    else -> Ambar
+/**
+ * Verde = bateu; âmbar = perto (dentro da tolerância que o Nexus manda, pra mais ou pra menos);
+ * vermelho = longe. Sem tolerância (API velha) a régua visual é 10 %. É só cor: quem decide divergência é o Nexus.
+ */
+private fun corDaDiferenca(dif: Int, esperado: Int, toleranciaPct: Double?): Color {
+    if (dif == 0) return Verde
+    val pct = if (esperado > 0) Math.abs(dif) * 100.0 / esperado else 100.0
+    return if (pct <= (toleranciaPct ?: 10.0)) Ambar else Vermelho
 }
 
 @Composable
@@ -223,14 +227,14 @@ private fun TabelaDiferenca(erro: DivergenciaErro) {
                 Text(t, Modifier.weight(1f), color = Texto)
                 Text("$e", Modifier.weight(1f), color = Texto)
                 Text("$l", Modifier.weight(1f), color = Texto)
-                Text("${if (l - e > 0) "+" else ""}${l - e}", Modifier.weight(1f), color = corDaDiferenca(l - e), fontWeight = FontWeight.Bold)
+                Text("${if (l - e > 0) "+" else ""}${l - e}", Modifier.weight(1f), color = corDaDiferenca(l - e, e, erro.toleranciaTamanhoPct), fontWeight = FontWeight.Bold)
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             Text("Total", Modifier.weight(1f), color = TextoFraco)
             Text("${erro.esperadoTotal}", Modifier.weight(1f), color = Texto)
             Text("${erro.lidoTotal}", Modifier.weight(1f), color = Texto)
-            Text("${erro.lidoTotal - erro.esperadoTotal}", Modifier.weight(1f), color = corDaDiferenca(erro.lidoTotal - erro.esperadoTotal), fontWeight = FontWeight.Bold)
+            Text("${erro.lidoTotal - erro.esperadoTotal}", Modifier.weight(1f), color = corDaDiferenca(erro.lidoTotal - erro.esperadoTotal, erro.esperadoTotal, erro.toleranciaPct), fontWeight = FontWeight.Bold)
         }
     }
 }
