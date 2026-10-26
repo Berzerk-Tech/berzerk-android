@@ -187,9 +187,9 @@ class ConferenciaViewModel(private val loteId: String) : ViewModel() {
     }
 
     /**
-     * Limpa SÓ a vista local (lidos, classificação, console, contadores e controle de envio).
+     * Limpa a vista local (lidos, classificação, console, grade e contadores — é o que a tela mostra grande).
      * Antes de limpar, sobe o que ainda não foi enviado — Zerar nunca descarta leitura.
-     * O que já subiu pro Nexus continua lá: a grade do Nexus NÃO zera.
+     * O que já subiu pro Nexus continua lá: a linha "Nexus: … lido N" NÃO zera, e é ela que vale na confirmação.
      */
     fun zerar() {
         if (_ui.value.confirmando) return

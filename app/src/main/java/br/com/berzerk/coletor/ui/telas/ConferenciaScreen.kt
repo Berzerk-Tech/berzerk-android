@@ -116,12 +116,13 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
             }
 
             if (lote != null) {
-                // 2. Grade por tamanho: lido × esperado vêm do Nexus (que decide); EAN vem das variantes do lote
-                val tamanhos = ordenarTamanhos(lote.esperadoPorTamanho.keys + lote.lidoPorTamanho.keys + lote.variantes.map { it.tamanho })
+                // 2. Grade por tamanho: o número grande é o que ESTE aparelho leu agora (zera com Zerar);
+                // esperado e EAN vêm do Nexus. O acumulado do Nexus (que decide a confirmação) fica na linha abaixo.
+                val tamanhos = ordenarTamanhos(lote.esperadoPorTamanho.keys + ui.porTamanhoLocal.keys + lote.variantes.map { it.tamanho })
                 tamanhos.chunked(3).forEach { linha ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         linha.forEach { t ->
-                            val lido = lote.lidoPorTamanho[t] ?: 0
+                            val lido = ui.porTamanhoLocal[t] ?: 0
                             val esperado = lote.esperadoPorTamanho[t] ?: 0
                             val dif = lido - esperado
                             TileTamanho(
@@ -134,16 +135,17 @@ fun ConferenciaScreen(loteId: String, voltar: () -> Unit, irConfig: () -> Unit) 
                     }
                 }
 
-                // 3. Contadores
+                // 3. Contadores locais (mesma classificação da Revisão por modelo)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Contador("Do lote", lote.lidoTotal, Verde, Modifier.weight(1f))
-                    Contador("Outro lote", lote.totalEpcsOutroLote, TextoFraco, Modifier.weight(1f))
-                    Contador("Sem cadastro", lote.totalEpcsDesconhecidos, Vermelho, Modifier.weight(1f))
+                    Contador("Do lote", ui.doLote, Verde, Modifier.weight(1f))
+                    Contador("Outro lote", ui.outros, TextoFraco, Modifier.weight(1f))
+                    Contador("Sem cadastro", ui.semCadastro, Vermelho, Modifier.weight(1f))
                     Contador("Total lidas", ui.unicos, Texto, Modifier.weight(1f))
                 }
+                // Acumulado do Nexus na sessão (é com ESTE lido que ele compara ao confirmar; inclui o que já subiu antes).
                 val dif = lote.lidoTotal - lote.esperadoTotal
                 Text(
-                    "Esperado ${lote.esperadoTotal}" + (lote.esperadoFonte?.let { " ($it)" } ?: "") + " · Lido ${lote.lidoTotal} · " +
+                    "Nexus: esperado ${lote.esperadoTotal}" + (lote.esperadoFonte?.let { " ($it)" } ?: "") + " · lido ${lote.lidoTotal} · " +
                         (if (dif == 0) "bateu" else if (dif > 0) "+$dif" else "$dif"),
                     style = MaterialTheme.typography.bodySmall, color = corDaDiferenca(dif),
                 )
