@@ -1,5 +1,6 @@
 package br.com.berzerk.coletor
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,6 +20,24 @@ class MainActivity : ComponentActivity() {
         RfidReader.setBeep(Graph.prefs.beep.value)
         RfidReader.iniciar(this)
         setContent { BerzerkTheme { App() } }
+        // Só numa abertura nova: recriação (rotação, processo morto) reentregaria o mesmo intent.
+        if (savedInstanceState == null) tratarLogout(intent)
+    }
+
+    /** Callback do `/logout` do Cognito (`berzerkrfid://auth/logout`) volta pra cá: aí sim limpa a sessão local. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        tratarLogout(intent)
+    }
+
+    private fun tratarLogout(intent: Intent?) {
+        val uri = intent?.data ?: return
+        // Reabertura pelo histórico reentrega o intent antigo: não é um callback novo.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val logout = uri.scheme == "berzerkrfid" && uri.host == "auth" && uri.path == "/logout"
+        intent.data = null // consumido: não dispara de novo
+        if (logout) Graph.concluirSaida()
     }
 
     override fun onResume() {

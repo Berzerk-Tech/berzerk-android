@@ -3,6 +3,7 @@ package br.com.berzerk.coletor.api
 import br.com.berzerk.coletor.core.Config
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.DELETE
 import retrofit2.http.Multipart
@@ -61,7 +62,30 @@ interface NexusApi {
         @Header("x-coletor-dispositivo") dispositivoId: String,
         @Header("x-coletor-modelo") modelo: String,
         @Body corpo: RequestBody,
-    ): UploadResponse
+    ): Response<ResponseBody>
+
+    /** Inventário: mesma assinatura do `/leituras`, mas já inclui o aparelho na sessão. 404 = Nexus ainda sem a rota. */
+    @Headers("Content-Type: text/plain; charset=utf-8")
+    @POST("revisao-rfid/sessoes/{sessaoId}/leituras")
+    suspend fun leiturasSessao(
+        @Path("sessaoId") sessaoId: String,
+        @Header("x-coletor-dispositivo") dispositivoId: String,
+        @Header("x-coletor-modelo") modelo: String,
+        @Body corpo: RequestBody,
+    ): Response<ResponseBody>
+
+    // --- inventário (sessões de contagem) ---
+    @GET("revisao-rfid/sessoes")
+    suspend fun listarSessoes(@Query("tipo") tipo: String? = null): ListarSessoesResponse
+
+    @POST("revisao-rfid/sessoes")
+    suspend fun abrirSessao(@Body body: AbrirSessaoBody): RfidSessaoDto
+
+    @GET("revisao-rfid/sessoes/{sessaoId}/cabecalho")
+    suspend fun cabecalhoSessao(@Path("sessaoId") sessaoId: String): CabecalhoSessaoDto
+
+    @GET("revisao-rfid/sessoes/{sessaoId}/inventario")
+    suspend fun inventarioSessao(@Path("sessaoId") sessaoId: String): InventarioSessaoDto
 
     // --- operador (reconhecimento facial; Bearer do aparelho, sem token de operador ainda) ---
     @Multipart

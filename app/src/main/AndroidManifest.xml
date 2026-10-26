@@ -36,9 +36,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Volta do /logout do Cognito (Custom Tab): a MainActivity (singleTask) recebe em onNewIntent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="berzerkrfid" android:host="auth" android:path="/logout" />
+            </intent-filter>
         </activity>
 
-        <!-- Logout do Cognito volta por berzerkrfid://auth/logout; o AppAuth já cobre o callback. -->
+        <!-- Só o callback do login (berzerkrfid://auth/callback) é do AppAuth; o /logout é da MainActivity. -->
         <activity
             android:name="net.openid.appauth.RedirectUriReceiverActivity"
             android:exported="true"
@@ -47,7 +54,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="berzerkrfid" android:host="auth" />
+                <data android:scheme="berzerkrfid" android:host="auth" android:path="/callback" />
             </intent-filter>
         </activity>
 

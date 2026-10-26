@@ -39,16 +39,13 @@ import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
-import br.com.berzerk.coletor.ui.comum.LinhaInfo
+import br.com.berzerk.coletor.ui.comum.formatarInteiro
 import br.com.berzerk.coletor.ui.comum.Ponto
-import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
-import java.text.NumberFormat
-import java.util.Locale
 
 /**
  * `GET /separacao/me` em memória de processo: permissões e nome de cadastro.
@@ -67,7 +64,7 @@ object MeCache {
 }
 
 @Composable
-fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irConfig: () -> Unit) {
+fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: () -> Unit, irConfig: () -> Unit) {
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -76,6 +73,8 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irConfig: () ->
     val chave = ativo?.let { "${it.id}:${it.expiraEm}" }
     var me by remember(chave) { mutableStateOf(MeCache.valor(chave)) }
     var erroMe by remember(chave) { mutableStateOf<String?>(null) }
+    var ultimo by remember { mutableStateOf(UltimoInventario.sessao) }
+    var ultimoCarregado by remember { mutableStateOf(UltimoInventario.sessao != null) }
 
     LaunchedEffect(sessao, chave) {
         if (sessao is SessaoEstado.Logado && ativo != null && me == null) {
@@ -84,60 +83,66 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irConfig: () ->
                 .onFailure { erroMe = it.mensagemCurta() }
         }
     }
+    LaunchedEffect(sessao, chave) {
+        if (sessao is SessaoEstado.Logado && ativo != null) {
+            runCatching { ordenarSessoes(Graph.api.listarSessoes("contagem").sessoes).firstOrNull() }
+                .onSuccess { ultimo = it; UltimoInventario.sessao = it; ultimoCarregado = true }
+        }
+    }
 
-    val nome = me?.rotulo ?: ativo?.nome?.takeIf { it.isNotBlank() } ?: "—"
+    val email = ativo?.username?.takeIf { it.isNotBlank() } ?: me?.rotulo ?: ativo?.nome?.takeIf { it.isNotBlank() } ?: "—"
     val podeConferir = me?.let { it.tem(Config.PERMISSAO_CONFERIR) || it.tem(Config.PERMISSAO_OPERATE) }
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho(
-            titulo = "Coletor",
-            rotulo = "Berzerk Nexus",
-            subtitulo = nome,
+            titulo = "Berzerk",
+            subtitulo = email,
             acao = {
                 IconButton(onClick = irConfig) { Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = Texto) }
             },
         )
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val (corRfid, textoRfid) = when (val e = rfid) {
+                RfidEstado.Pronto, RfidEstado.Lendo -> Verde to "Leitor pronto"
+                RfidEstado.Iniciando -> Ambar to "Iniciando o leitor…"
+                RfidEstado.Desligado -> TextoFraco to "Leitor desligado"
+                is RfidEstado.Erro -> Vermelho to e.motivo
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Ponto(corRfid)
+                Spacer(Modifier.width(8.dp))
+                val base = if (sync.totalLocal == 0L) "base não baixada" else "base ${formatarInteiro(sync.totalLocal)}" + if (sync.rodando) " (atualizando…)" else ""
+                Text(
+                    "$textoRfid · ${formatarInteiro(sync.modelos)} modelos · $base",
+                    style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 2,
+                )
+            }
             if (erroMe != null) Text(erroMe!!, color = Vermelho)
             if (podeConferir == false) {
                 Cartao { Text("Sua conta ainda não tem acesso ao recebimento. Peça ao admin o papel coletor-recebimento no Nexus.", color = Ambar) }
             }
-            MenuItem("01", "Recebimento", "Conferir lotes que chegaram do galpão", habilitado = podeConferir != false, onClick = irRecebimento)
-            MenuItem("02", "Revisão RFID", "Ler peças por modelo e tamanho e salvar no inventário", habilitado = true, onClick = irRevisao)
+            MenuItem("01", "Revisão RFID", "Escolha o modelo, dê play e veja por tamanho o que tem na sua frente", habilitado = true, onClick = irRevisao)
+            val descInventario = ultimo?.let { "Último: ${it.nome} · ${formatarInteiro(it.pecas)} peças" }
+                ?: if (ultimoCarregado) "Nenhum inventário ainda" else "Contar o estoque inteiro e mandar pro Nexus"
+            MenuItem("02", "Inventário", descInventario, habilitado = true, onClick = irInventario)
+            MenuItem("03", "Recebimento", "Conferir lotes no galpão e confirmar no Nexus", habilitado = podeConferir != false, onClick = irRecebimento)
             Spacer(Modifier.height(4.dp))
             BotaoGrande("Trocar operador", onClick = { Graph.operador.encerrar() }, contorno = true)
-            Spacer(Modifier.height(4.dp))
-            Cartao {
-                Column {
-                    Rotulo("Aparelho")
-                    Spacer(Modifier.height(6.dp))
-                    val (corRfid, textoRfid) = when (val e = rfid) {
-                        RfidEstado.Pronto, RfidEstado.Lendo -> Verde to "Leitor pronto"
-                        RfidEstado.Iniciando -> Ambar to "Iniciando o leitor…"
-                        RfidEstado.Desligado -> TextoFraco to "Leitor desligado"
-                        is RfidEstado.Erro -> Vermelho to e.motivo
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) { Ponto(corRfid); Spacer(Modifier.width(8.dp)); Text(textoRfid, color = Texto) }
-                    Spacer(Modifier.height(4.dp))
-                    val fmt = NumberFormat.getIntegerInstance(Locale("pt", "BR"))
-                    LinhaInfo("Base de etiquetas", if (sync.totalLocal == 0L) "não baixada" else "${fmt.format(sync.totalLocal)} EPCs" + if (sync.rodando) " (baixando…)" else "")
-                    LinhaInfo("Aparelho", Graph.upload.modelo)
-                    LinhaInfo("Versão", Config.versao)
-                }
-            }
+            Text("Versão ${Config.versao}", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
         }
     }
 }
 
+/** Card numerado: todos com a mesma altura, número em verde e título em display. */
 @Composable
 private fun MenuItem(numero: String, titulo: String, descricao: String, habilitado: Boolean, onClick: () -> Unit) {
-    Cartao(Modifier.clickable(enabled = habilitado, onClick = onClick)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(numero, style = MaterialTheme.typography.displayMedium, color = if (habilitado) TextoFraco else TextoFraco.copy(alpha = 0.4f))
+    Cartao(Modifier.height(116.dp).clickable(enabled = habilitado, onClick = onClick)) {
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            Text(numero, style = MaterialTheme.typography.displayMedium, color = if (habilitado) Verde else TextoFraco.copy(alpha = 0.4f))
             Spacer(Modifier.width(18.dp))
             Column(Modifier.weight(1f)) {
                 Text(titulo.uppercase(), style = MaterialTheme.typography.headlineSmall, color = if (habilitado) Texto else TextoFraco)
-                Text(descricao, style = MaterialTheme.typography.bodyMedium, color = TextoFraco)
+                Text(descricao, style = MaterialTheme.typography.bodyMedium, color = TextoFraco, maxLines = 3)
             }
             Text("→", style = MaterialTheme.typography.titleLarge, color = TextoFraco)
         }

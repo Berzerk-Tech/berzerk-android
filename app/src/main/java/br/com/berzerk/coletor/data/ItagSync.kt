@@ -153,6 +153,8 @@ class ItagSync(
     /** Apaga a base local e baixa de novo do zero (snapshot + imagens). */
     fun apagarEBaixar() {
         cancelar()
+        // `cancelar()` liga a flag de "pausado pelo operador"; este caminho roda `rodar()` direto e nunca a desligaria.
+        pausadaPeloOperador = false
         val anterior = job
         job = scope.launch(Dispatchers.IO) {
             anterior?.cancelAndJoin()

@@ -40,6 +40,7 @@ import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,6 +48,9 @@ import java.util.Locale
 
 @Composable
 fun ConfigScreen(voltar: () -> Unit) {
+    val contexto = androidx.compose.ui.platform.LocalContext.current
+    val escopo = androidx.compose.runtime.rememberCoroutineScope()
+    var avisoSaida by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val prefs = Graph.prefs
     val potencia by prefs.potencia.collectAsState()
     val beep by prefs.beep.collectAsState()
@@ -129,8 +133,15 @@ fun ConfigScreen(voltar: () -> Unit) {
                 Column {
                     Rotulo("Conta do aparelho")
                     Spacer(Modifier.height(6.dp))
-                    Text("Sai da conta compartilhada do aparelho e também encerra o operador atual.", color = TextoFraco)
-                    TextButton(onClick = { Graph.operador.encerrar(); Graph.auth.sair() }) { Text("Sair da conta do aparelho", color = Vermelho) }
+                    Text("Sai da conta compartilhada do aparelho e também encerra o operador atual. Abre o navegador por um instante pra encerrar a sessão do Google.", color = TextoFraco)
+                    if (avisoSaida != null) Text(avisoSaida!!, color = Vermelho)
+                    TextButton(onClick = {
+                        escopo.launch {
+                            val n = Graph.leiturasNaoEnviadas()
+                            if (n > 0) avisoSaida = "Há $n leituras não enviadas. Envie ou zere antes de sair."
+                            else { avisoSaida = null; Graph.sairDoAparelho(contexto) }
+                        }
+                    }) { Text("Sair da conta do aparelho", color = Vermelho) }
                 }
             }
             Cartao {

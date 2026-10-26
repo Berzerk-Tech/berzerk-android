@@ -15,7 +15,9 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.navArgument
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import br.com.berzerk.coletor.auth.OperadorEstado
@@ -25,7 +27,13 @@ import br.com.berzerk.coletor.ui.telas.AtualizacaoOverlay
 import br.com.berzerk.coletor.ui.telas.ConferenciaScreen
 import br.com.berzerk.coletor.ui.telas.ConfigScreen
 import br.com.berzerk.coletor.ui.telas.FacialScreen
+import br.com.berzerk.coletor.ui.telas.AlvoLeitura
 import br.com.berzerk.coletor.ui.telas.HomeScreen
+import br.com.berzerk.coletor.ui.telas.InventarioListaScreen
+import br.com.berzerk.coletor.ui.telas.InventarioSessaoScreen
+import br.com.berzerk.coletor.ui.telas.LeituraColetorScreen
+import br.com.berzerk.coletor.ui.telas.PreviaSessoes
+import br.com.berzerk.coletor.upload.EnvioPendentesWorker
 import br.com.berzerk.coletor.ui.telas.LeituraScreen
 import br.com.berzerk.coletor.ui.telas.LoginScreen
 import br.com.berzerk.coletor.ui.telas.RecebimentoScreen
@@ -44,6 +52,11 @@ object Rotas {
     const val REVISAO_MODELO = "revisao/{chave}"
     const val LEITURA = "leitura"
     const val CONFIG = "config"
+    const val INVENTARIO = "inventario"
+    const val INVENTARIO_SESSAO = "inventario/{sessaoId}"
+    const val INVENTARIO_LEITURA = "inventario/{sessaoId}/ler?nome={nome}"
+    fun inventarioSessao(sessaoId: String) = "inventario/$sessaoId"
+    fun inventarioLeitura(sessaoId: String, nome: String) = "inventario/$sessaoId/ler?nome=${Uri.encode(nome)}"
     fun conferencia(loteId: String) = "conferencia/$loteId"
     fun revisaoModelo(chave: String) = "revisao/${Uri.encode(chave)}"
 }
@@ -58,6 +71,8 @@ fun App() {
     LaunchedEffect(Unit) { Graph.update.verificar() }
     // Base iTag: atualiza sozinha ao logar/abrir, ao voltar pro primeiro plano e a cada hora (régua de 24 h dentro do ItagSync).
     LaunchedEffect(sessao) { if (sessao is SessaoEstado.Logado) Graph.itag.atualizarSeVelha() }
+    // Leitura que ficou sem enviar (rede caiu, app fechado): o worker manda quando houver rede.
+    LaunchedEffect(sessao) { if (sessao is SessaoEstado.Logado) EnvioPendentesWorker.enfileirar(Graph.appContext) }
     LaunchedEffect(sessao) {
         // Conta do aparelho caiu (refresh recusado, "Sair da conta do aparelho"): leva a sessão de operador junto e volta pro login.
         if (sessao is SessaoEstado.Deslogado) {
@@ -110,6 +125,7 @@ fun App() {
                 HomeScreen(
                     irRecebimento = { nav.navigate(Rotas.RECEBIMENTO) },
                     irRevisao = { nav.navigate(Rotas.REVISAO) },
+                    irInventario = { nav.navigate(Rotas.INVENTARIO) },
                     irConfig = { nav.navigate(Rotas.CONFIG) },
                 )
             }
@@ -132,7 +148,36 @@ fun App() {
                 val chave = entrada.arguments?.getString("chave") ?: return@composable
                 RevisaoModeloScreen(chave = chave, voltar = { nav.popBackStack() })
             }
-            composable(Rotas.LEITURA) { LeituraScreen(voltar = { nav.popBackStack() }, irConfig = { nav.navigate(Rotas.CONFIG) }) }
+            composable(Rotas.LEITURA) { LeituraScreen(voltar = { nav.popBackStack() }) }
+            composable(Rotas.INVENTARIO) {
+                InventarioListaScreen(
+                    voltar = { nav.popBackStack() },
+                    abrir = { PreviaSessoes.guardar(it); nav.navigate(Rotas.inventarioSessao(it.id)) },
+                )
+            }
+            composable(Rotas.INVENTARIO_SESSAO) { entrada ->
+                val sessaoId = entrada.arguments?.getString("sessaoId") ?: return@composable
+                InventarioSessaoScreen(
+                    sessaoId = sessaoId,
+                    voltar = { nav.popBackStack() },
+                    ler = { nav.navigate(Rotas.inventarioLeitura(it.id, it.nome)) },
+                )
+            }
+            composable(
+                Rotas.INVENTARIO_LEITURA,
+                arguments = listOf(navArgument("nome") { type = NavType.StringType; defaultValue = "" }),
+            ) { entrada ->
+                val sessaoId = entrada.arguments?.getString("sessaoId") ?: return@composable
+                val nome = entrada.arguments?.getString("nome").orEmpty()
+                LeituraColetorScreen(
+                    alvo = AlvoLeitura.Inventario(sessaoId, nome),
+                    voltar = { nav.popBackStack() },
+                    trocarSessao = { s ->
+                        PreviaSessoes.guardar(s)
+                        nav.navigate(Rotas.inventarioLeitura(s.id, s.nome)) { popUpTo(Rotas.INVENTARIO_LEITURA) { inclusive = true } }
+                    },
+                )
+            }
             composable(Rotas.CONFIG) { ConfigScreen(voltar = { nav.popBackStack() }) }
         }
         AtualizacaoOverlay()

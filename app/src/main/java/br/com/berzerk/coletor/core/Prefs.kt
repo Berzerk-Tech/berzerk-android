@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Preferências do aparelho, cifradas (AES-256, chave no Keystore do Android):
- * sessão do Cognito, token do coletor e ajustes do leitor. Nada disso sai do
+ * sessão do Cognito, id do coletor e ajustes do leitor. Nada disso sai do
  * aparelho nem aparece em log.
  */
 class Prefs(context: Context) {
@@ -27,6 +27,11 @@ class Prefs(context: Context) {
     var authStateJson: String?
         get() = prefs.getString(K_AUTH_STATE, null)
         set(v) = prefs.edit().putString(K_AUTH_STATE, v).apply()
+
+    /** Id (uuid) deste aparelho como coletor no Nexus, devolvido em toda resposta de leitura. Não é segredo. */
+    var coletorId: String?
+        get() = prefs.getString(K_COLETOR_ID, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().putString(K_COLETOR_ID, v).apply()
 
     private val _potencia = MutableStateFlow(prefs.getInt(K_POTENCIA, POTENCIA_PADRAO))
     val potencia: StateFlow<Int> = _potencia
@@ -91,6 +96,7 @@ class Prefs(context: Context) {
         private const val K_OP_USERNAME = "operador_username"
         private const val K_OP_ATIVIDADE = "operador_ultima_atividade"
         private const val K_AUTH_STATE = "auth_state"
+        private const val K_COLETOR_ID = "coletor_id"
         private const val K_POTENCIA = "potencia_dbm"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26

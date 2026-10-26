@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -85,6 +86,8 @@ import kotlin.coroutines.resume
 @Composable
 fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
     val contexto = LocalContext.current
+    val escopoSaida = androidx.compose.runtime.rememberCoroutineScope()
+    var avisoSaida by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val estado by vm.estado.collectAsState()
 
@@ -153,7 +156,16 @@ fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { Graph.operador.encerrar(); Graph.auth.sair() }) { Text("Sair da conta do aparelho", color = TextoFraco, style = MaterialTheme.typography.bodySmall) }
+            Column {
+                if (avisoSaida != null) Text(avisoSaida!!, color = Vermelho, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    escopoSaida.launch {
+                        val n = Graph.leiturasNaoEnviadas()
+                        if (n > 0) avisoSaida = "Há $n leituras não enviadas. Envie ou zere antes de sair."
+                        else { avisoSaida = null; Graph.sairDoAparelho(contexto) }
+                    }
+                }) { Text("Sair da conta do aparelho", color = TextoFraco, style = MaterialTheme.typography.bodySmall) }
+            }
             Text(Config.versao, style = MaterialTheme.typography.bodySmall, color = TextoFraco)
         }
     }

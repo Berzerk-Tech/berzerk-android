@@ -271,7 +271,7 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
 }
 
 @Composable
-private fun ChipCategoria(texto: String, selecionado: Boolean, onClick: () -> Unit) {
+internal fun ChipCategoria(texto: String, selecionado: Boolean, onClick: () -> Unit) {
     val forma = RoundedCornerShape(18.dp)
     Box(
         Modifier.height(36.dp).clip(forma)
