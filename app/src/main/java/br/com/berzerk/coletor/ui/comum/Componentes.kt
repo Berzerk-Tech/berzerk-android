@@ -13,6 +13,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.navigationBarsPadding
+import br.com.berzerk.coletor.ui.theme.Ambar
+import kotlinx.coroutines.delay
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
 import androidx.compose.foundation.layout.Box
@@ -234,7 +236,7 @@ private fun FotoTelaCheia(url: String, fechar: () -> Unit) {
 /** `DO_ALVO` = do modelo (Revisão) ou do lote (Conferência); `OUTRO` = tem cadastro mas é de outro. */
 enum class TipoLeitura { DO_ALVO, OUTRO, SEM_CADASTRO }
 
-data class LinhaConsole(val epc: String, val tamanho: String, val modelo: String, val tipo: TipoLeitura)
+data class LinhaConsole(val epc: String, val tamanho: String, val modelo: String, val tipo: TipoLeitura, val em: Long = 0L)
 
 /** Tile 3 colunas de um tamanho: número grande (na [cor] quando > 0), EAN embaixo e [rodape] opcional ("de 72"). */
 @Composable
@@ -275,22 +277,35 @@ fun Contador(rotulo: String, valor: Int, cor: Color, modifier: Modifier = Modifi
     }
 }
 
-/** Caixa preta monospace (140 dp) com as últimas leituras e a linha `$ N etiquetas únicas · M leituras`. */
+/**
+ * Caixa preta monospace (140 dp) com as últimas leituras e a linha `$ N etiquetas únicas · M leituras`.
+ * Com [destacarNovas], só a linha com menos de 1 s (`em`) fica verde; as outras ficam em cinza.
+ */
 @Composable
-fun ConsoleLeituras(linhas: List<LinhaConsole>, unicos: Int, leituras: Int) {
+fun ConsoleLeituras(linhas: List<LinhaConsole>, unicos: Int, leituras: Int, destacarNovas: Boolean = false) {
     Text("$ $unicos etiquetas únicas · $leituras leituras", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TextoFraco)
     val forma = RoundedCornerShape(8.dp)
     val lista = rememberLazyListState()
     LaunchedEffect(linhas) { if (linhas.isNotEmpty()) lista.scrollToItem(linhas.lastIndex) }
+    // Reavalia o "novo" 1 s depois da última leitura (o console só recompõe quando chega linha).
+    var agora by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(linhas, destacarNovas) {
+        agora = System.currentTimeMillis()
+        if (destacarNovas && linhas.isNotEmpty()) {
+            delay(1_050)
+            agora = System.currentTimeMillis()
+        }
+    }
     Box(Modifier.fillMaxWidth().height(140.dp).clip(forma).background(Fundo).border(1.dp, Borda, forma).padding(8.dp)) {
         if (linhas.isEmpty()) {
             Text("Segure o gatilho ou toque em LER.", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
         } else {
             LazyColumn(state = lista) {
                 itemsIndexed(linhas) { _, l ->
+                    val nova = destacarNovas && agora - l.em < 1_000
                     val (cor, texto) = when (l.tipo) {
-                        TipoLeitura.DO_ALVO -> Verde to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
-                        TipoLeitura.OUTRO -> TextoFraco to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
+                        TipoLeitura.DO_ALVO -> (if (destacarNovas && !nova) TextoFraco else Verde) to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
+                        TipoLeitura.OUTRO -> (if (nova) Verde else TextoFraco) to "▸ …${l.epc}  ${l.tamanho}  ${l.modelo}"
                         TipoLeitura.SEM_CADASTRO -> Vermelho to "▸ …${l.epc}  sem cadastro"
                     }
                     Text(texto, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = cor, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -300,17 +315,32 @@ fun ConsoleLeituras(linhas: List<LinhaConsole>, unicos: Int, leituras: Int) {
     }
 }
 
-/** Rodapé fixo da leitura: `Zerar` + `▶  LER` / `■  PARAR`. [conteudoExtra] vai logo abaixo (ex.: Confirmar). */
+/**
+ * Rodapé fixo da leitura: `Zerar` + `▶  LER` / `■  PARAR` (+ `SALVAR` quando [aoSalvar] vem). [indicador] fica
+ * logo acima dos botões (N lidas · N enviadas · N pendentes); [conteudoExtra] abaixo (ex.: Confirmar).
+ */
 @Composable
-fun RodapeLeitura(lendo: Boolean, habilitado: Boolean, aoZerar: () -> Unit, aoLer: () -> Unit, zerarHabilitado: Boolean = true, conteudoExtra: (@Composable () -> Unit)? = null) {
+fun RodapeLeitura(
+    lendo: Boolean,
+    habilitado: Boolean,
+    aoZerar: () -> Unit,
+    aoLer: () -> Unit,
+    zerarHabilitado: Boolean = true,
+    aoSalvar: (() -> Unit)? = null,
+    salvarHabilitado: Boolean = true,
+    salvando: Boolean = false,
+    indicador: (@Composable () -> Unit)? = null,
+    conteudoExtra: (@Composable () -> Unit)? = null,
+) {
     Column(Modifier.fillMaxWidth().background(Fundo).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        indicador?.invoke()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(6.dp)).background(Muted).clickable(enabled = zerarHabilitado, onClick = aoZerar),
                 contentAlignment = Alignment.Center,
             ) { Text("Zerar", style = MaterialTheme.typography.titleSmall, color = if (zerarHabilitado) Texto else TextoFraco) }
             Box(
-                Modifier.weight(2.2f).height(56.dp).clip(RoundedCornerShape(6.dp))
+                Modifier.weight(if (aoSalvar != null) 1.7f else 2.2f).height(56.dp).clip(RoundedCornerShape(6.dp))
                     .background(if (!habilitado) Muted else if (lendo) Vermelho else Verde)
                     .clickable(enabled = habilitado, onClick = aoLer),
                 contentAlignment = Alignment.Center,
@@ -320,7 +350,31 @@ fun RodapeLeitura(lendo: Boolean, habilitado: Boolean, aoZerar: () -> Unit, aoLe
                     color = if (!habilitado) TextoFraco else if (lendo) Texto else Fundo,
                 )
             }
+            if (aoSalvar != null) {
+                Box(
+                    Modifier.weight(1.3f).height(56.dp).clip(RoundedCornerShape(6.dp)).background(Muted).border(1.dp, Borda, RoundedCornerShape(6.dp))
+                        .clickable(enabled = salvarHabilitado, onClick = aoSalvar),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (salvando) "Salvando…" else "💾 SALVAR", style = MaterialTheme.typography.titleSmall, color = if (salvarHabilitado) Texto else TextoFraco, maxLines = 1) }
+            }
         }
         conteudoExtra?.invoke()
     }
+}
+
+/** "N lidas · N enviadas · N pendentes" + estado do envio (Enviando… / Sem rede, vou tentar de novo / Tudo salvo). */
+@Composable
+fun IndicadorEnvio(lidas: Int, enviadas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio) {
+    val (texto, cor) = textoDoEnvio(lidas, pendentes, estado)
+    Column(Modifier.fillMaxWidth()) {
+        Text("$lidas lidas · $enviadas enviadas · $pendentes pendentes", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TextoFraco)
+        if (texto.isNotEmpty()) Text(texto, style = MaterialTheme.typography.bodySmall, color = cor)
+    }
+}
+
+private fun textoDoEnvio(lidas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio): Pair<String, Color> = when (estado) {
+    is br.com.berzerk.coletor.upload.EstadoEnvio.Enviando -> "Enviando…" to Texto
+    is br.com.berzerk.coletor.upload.EstadoEnvio.SemRede -> "Sem rede, vou tentar de novo" to Ambar
+    is br.com.berzerk.coletor.upload.EstadoEnvio.Erro -> estado.motivo to Vermelho
+    br.com.berzerk.coletor.upload.EstadoEnvio.Ocioso -> if (lidas > 0 && pendentes == 0) "Tudo salvo" to Verde else "" to TextoFraco
 }

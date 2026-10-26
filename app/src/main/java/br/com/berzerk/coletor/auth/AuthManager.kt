@@ -101,14 +101,19 @@ class AuthManager(context: Context, private val prefs: Prefs) {
         return null
     }
 
-    /** Apaga a sessão local. A URL devolvida encerra a sessão no Cognito (abrir no navegador é opcional). */
-    fun sair(): Uri {
-        sairLocal()
-        return Uri.parse("https://${Config.cognitoDomain}/logout").buildUpon()
+    /**
+     * URL de `/logout` do Cognito (`client_id` + `logout_uri` registrado no app client). Abri-la num
+     * Custom Tab apaga o cookie de 1 h do Cognito no navegador; sem isso o próximo "Entrar" reloga a
+     * mesma conta sem passar pelo Google. Não mexe na sessão local (ver `Graph.sairDoAparelho`).
+     */
+    fun urlDeLogout(): Uri =
+        Uri.parse("https://${Config.cognitoDomain}/logout").buildUpon()
             .appendQueryParameter("client_id", Config.cognitoClientId)
             .appendQueryParameter("logout_uri", Config.logoutUri)
             .build()
-    }
+
+    /** Apaga a sessão local (tokens), pelo mesmo lock do `renovar()` (que chama `sairLocal` dentro dele). */
+    suspend fun limparSessaoLocal() = lock.withLock { sairLocal() }
 
     private fun sairLocal() {
         state = AuthState(config)

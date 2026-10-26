@@ -253,6 +253,8 @@ data class UploadResponse(
     val epcs: Int = 0,
     val novos: Int? = null,
     val duplicado: Boolean? = null,
+    /** Só em `POST revisao-rfid/sessoes/{id}/leituras`: total de EPCs da sessão depois deste envio. */
+    val totalSessao: Int? = null,
 )
 
 /** `GET /revisao-rfid/itag/snapshot`: 200 com `url` presignada (15 min) ou 202 `{ gerando: true }`. */
@@ -266,3 +268,89 @@ data class ItagSnapshotDto(
     val bytes: Long? = null,
     val sha256: String? = null,
 )
+
+// --- Inventário (sessões `contagem`) --- contratos `revisao-rfid.ts` e `revisao-rfid-inventario.ts` ---
+
+/** `rfidSessaoDtoSchema` (só o que o coletor usa). `status`: `aberta` | `fechada`. */
+@Serializable
+data class RfidSessaoDto(
+    val id: String = "",
+    val tipo: String = "",
+    val nome: String = "",
+    val status: String = "",
+    val abertaEm: String = "",
+    val fechadaEm: String? = null,
+    val coletorIds: List<String> = emptyList(),
+    val totalEpcs: Int = 0,
+    /** Ainda não existe no Nexus; quando vier, vence `totalEpcs` na tela. */
+    val totalPecas: Int? = null,
+) {
+    val aberta: Boolean get() = status == "aberta"
+    val pecas: Int get() = totalPecas ?: totalEpcs
+}
+
+@Serializable
+data class ListarSessoesResponse(val sessoes: List<RfidSessaoDto> = emptyList())
+
+/** `abrirSessaoBodySchema`: sem defaults de propósito (o json do app não envia campo igual ao default). */
+@Serializable
+data class AbrirSessaoBody(val tipo: String, val nome: String, val coletorIds: List<String>)
+
+@Serializable
+data class InventarioTamanhoDto(
+    val tamanho: String? = null,
+    val sku: String? = null,
+    val ean13: String? = null,
+    val contado: Int = 0,
+    val jaSaiu: Int = 0,
+    val reservado: Int = 0,
+    val reservadoNaoLiberado: Int = 0,
+    val disponivel: Int = 0,
+)
+
+@Serializable
+data class CategoriaLojaDto(val id: String = "", val nome: String = "")
+
+@Serializable
+data class InventarioProdutoDto(
+    val chave: String = "",
+    val produtoId: String? = null,
+    val nome: String? = null,
+    val cor: String? = null,
+    val imagemUrl: String? = null,
+    val categoriaLoja: CategoriaLojaDto? = null,
+    val situacaoLoja: String? = null,
+    val contado: Int = 0,
+    val jaSaiu: Int = 0,
+    val reservado: Int = 0,
+    val reservadoNaoLiberado: Int = 0,
+    val disponivel: Int = 0,
+    val tamanhos: List<InventarioTamanhoDto> = emptyList(),
+)
+
+@Serializable
+data class InventarioTotaisDto(
+    val contado: Int = 0,
+    val jaSaiu: Int = 0,
+    val reservado: Int = 0,
+    val reservadoNaoLiberado: Int = 0,
+    val disponivel: Int = 0,
+    val modelos: Int = 0,
+    val semCadastro: Int = 0,
+    val reservadoSemVinculo: Int = 0,
+    val jaSaiuSemLinha: Int? = null,
+)
+
+/** `GET revisao-rfid/sessoes/{id}/inventario` (`inventarioSessaoDtoSchema`). */
+@Serializable
+data class InventarioSessaoDto(
+    val sessaoId: String = "",
+    val referenciaEm: String = "",
+    val calculadoEm: String = "",
+    val totais: InventarioTotaisDto = InventarioTotaisDto(),
+    val produtos: List<InventarioProdutoDto> = emptyList(),
+)
+
+/** `GET revisao-rfid/sessoes/{id}/cabecalho` (fatia leve do resumo): só a sessão interessa ao coletor. */
+@Serializable
+data class CabecalhoSessaoDto(val sessao: RfidSessaoDto = RfidSessaoDto())

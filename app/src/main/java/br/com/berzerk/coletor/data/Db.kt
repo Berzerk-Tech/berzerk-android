@@ -13,6 +13,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 /** Uma linha por EPC impresso na iTag (espelho de `GET /revisao-rfid/itag/epcs`). */
 @Entity(tableName = "epcs")
@@ -135,9 +136,90 @@ interface EpcDao {
     }
 }
 
-@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class], version = 3, exportSchema = false)
+/** De onde vem a leitura. `referencia` = sessão de inventário / chave do modelo / id do lote / `""` (livre). */
+object Origem {
+    const val INVENTARIO = "inventario"
+    const val REVISAO = "revisao"
+    const val CONFERENCIA = "conferencia"
+    const val LIVRE = "livre"
+}
+
+/**
+ * EPC lido neste aparelho. PK composta `(origem, referencia, epc)`: a mesma peça lida 50 vezes na
+ * mesma sessão é UMA linha. `referencia` nunca é nula (`""` = sem referência): NULL em PK não
+ * deduplica no SQLite. `enviadoEm` nulo = ainda não subiu pro Nexus (só um 2xx marca).
+ */
+@Entity(tableName = "leituras", primaryKeys = ["origem", "referencia", "epc"])
+data class LeituraEntity(
+    val epc: String,
+    val lidoEm: Long,
+    val origem: String,
+    val referencia: String = "",
+    val enviadoEm: Long? = null,
+)
+
+/** Última resposta de `GET revisao-rfid/sessoes/{id}/inventario` (demora 15–25 s numa sessão aberta). */
+@Entity(tableName = "inventario_cache")
+data class InventarioCacheEntity(
+    @PrimaryKey val sessaoId: String,
+    val json: String,
+    /** `RfidSessaoDto` da sessão (cabeçalho offline). */
+    val sessaoJson: String?,
+    val atualizadoEm: Long,
+)
+
+data class ContagemLeituras(val lidas: Int, val enviadas: Int)
+data class GrupoLeitura(val origem: String, val referencia: String)
+
+@Dao
+interface LeituraDao {
+    /** `IGNORE`: EPC já gravado na mesma (origem, referencia) não vira linha nova nem perde o `enviadoEm`. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun inserir(linhas: List<LeituraEntity>)
+
+    @Query(
+        "SELECT COUNT(*) AS lidas, COALESCE(SUM(CASE WHEN enviadoEm IS NOT NULL THEN 1 ELSE 0 END), 0) AS enviadas " +
+            "FROM leituras WHERE origem = :origem AND referencia = :referencia",
+    )
+    fun contagem(origem: String, referencia: String): Flow<ContagemLeituras>
+
+    @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia ORDER BY lidoEm, epc")
+    suspend fun epcs(origem: String, referencia: String): List<String>
+
+    @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NULL ORDER BY lidoEm, epc LIMIT :limite")
+    suspend fun pendentes(origem: String, referencia: String, limite: Int): List<String>
+
+    @Query("UPDATE leituras SET enviadoEm = :em WHERE origem = :origem AND referencia = :referencia AND epc IN (:epcs)")
+    suspend fun marcarEnviadas(origem: String, referencia: String, epcs: List<String>, em: Long)
+
+    @Query("DELETE FROM leituras WHERE origem = :origem AND referencia = :referencia")
+    suspend fun apagar(origem: String, referencia: String)
+
+    /** Revisão/livre não acumulam: ao abrir a tela, o que já subiu sai (os pendentes ficam). */
+    @Query("DELETE FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NOT NULL")
+    suspend fun apagarEnviadas(origem: String, referencia: String)
+
+    /** Limpeza geral: enviadas antes de [limite] (epoch ms), de qualquer origem. */
+    @Query("DELETE FROM leituras WHERE enviadoEm IS NOT NULL AND enviadoEm < :limite")
+    suspend fun apagarEnviadasAntes(limite: Long)
+
+    @Query("SELECT COUNT(*) FROM leituras WHERE enviadoEm IS NULL")
+    suspend fun contarNaoEnviadas(): Int
+
+    @Query("SELECT DISTINCT origem, referencia FROM leituras WHERE enviadoEm IS NULL")
+    suspend fun gruposPendentes(): List<GrupoLeitura>
+
+    @Query("SELECT * FROM inventario_cache WHERE sessaoId = :sessaoId")
+    suspend fun cacheInventario(sessaoId: String): InventarioCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun gravarCacheInventario(linha: InventarioCacheEntity)
+}
+
+@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class, LeituraEntity::class, InventarioCacheEntity::class], version = 4, exportSchema = false)
 abstract class ColetorDb : RoomDatabase() {
     abstract fun epcs(): EpcDao
+    abstract fun leituras(): LeituraDao
 
     companion object {
         /** 1 → 2: só cria `modelos` (preenchida pelo `reindexarModelos`); NÃO mexe em `epcs` (2,8 M linhas). */
@@ -158,9 +240,24 @@ abstract class ColetorDb : RoomDatabase() {
             }
         }
 
+        /** 3 → 4: cria `leituras` e `inventario_cache`; NÃO mexe em `epcs` (2,8 M linhas). */
+        private val MIGRACAO_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `leituras` (`epc` TEXT NOT NULL, `lidoEm` INTEGER NOT NULL, " +
+                        "`origem` TEXT NOT NULL, `referencia` TEXT NOT NULL, `enviadoEm` INTEGER, " +
+                        "PRIMARY KEY(`origem`, `referencia`, `epc`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `inventario_cache` (`sessaoId` TEXT NOT NULL, `json` TEXT NOT NULL, " +
+                        "`sessaoJson` TEXT, `atualizadoEm` INTEGER NOT NULL, PRIMARY KEY(`sessaoId`))",
+                )
+            }
+        }
+
         fun abrir(context: Context): ColetorDb =
             Room.databaseBuilder(context.applicationContext, ColetorDb::class.java, "coletor.db")
-                .addMigrations(MIGRACAO_1_2, MIGRACAO_2_3)
+                .addMigrations(MIGRACAO_1_2, MIGRACAO_2_3, MIGRACAO_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
     }
