@@ -14,9 +14,11 @@ import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
+import java.io.ByteArrayOutputStream
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -70,13 +72,8 @@ import br.com.berzerk.coletor.ui.theme.Vermelho
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import kotlin.coroutines.resume
 
 /**
  * Identificação do operador por rosto, depois do login da conta do aparelho.
@@ -105,15 +102,8 @@ fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    val captura = remember {
-        ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-    }
     LaunchedEffect(estado) {
         when (val e = estado) {
-            FacialEstado.Capturando -> {
-                val jpeg = capturarJpeg(captura, ContextCompat.getMainExecutor(contexto))
-                if (jpeg != null) vm.enviar(jpeg) else vm.falhaNaCaptura()
-            }
             is FacialEstado.Sucesso -> { delay(1_000); aoConcluir() }
             else -> Unit
         }
@@ -130,7 +120,7 @@ fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
             contentAlignment = Alignment.Center,
         ) {
             if (temPermissao) {
-                CameraPreview(captura = captura, ativo = estado is FacialEstado.Procurando || estado is FacialEstado.Pisque, vm = vm)
+                CameraPreview(ativo = estado is FacialEstado.Procurando || estado is FacialEstado.Pisque || estado is FacialEstado.Capturando, vm = vm)
             } else {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("O app precisa da câmera pra identificar o operador.", color = Texto, style = MaterialTheme.typography.bodyLarge)
@@ -187,10 +177,14 @@ private fun abrirConfiguracoes(c: Context) {
     }
 }
 
-/** Preview + análise (ML Kit) + captura, presos ao ciclo de vida da tela. */
+/**
+ * Preview + análise (ML Kit), presos ao ciclo de vida da tela. A foto que vai pro Nexus é o próprio
+ * frame da análise no instante da piscada: sem `takePicture` (segundos de foco/exposição/JPEG grande no
+ * DT50) nem decode de foto em resolução máxima.
+ */
 @OptIn(ExperimentalGetImage::class)
 @Composable
-private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewModel) {
+private fun CameraPreview(ativo: Boolean, vm: FacialViewModel) {
     val contexto = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(contexto).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
@@ -217,12 +211,19 @@ private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewM
             val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val analise = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetResolution(Size(480, 640))
+                // 720×960: o rosto (≥ 30 % da largura) chega ao Rekognition com folga e o ML Kit ainda roda leve.
+                .setTargetResolution(Size(720, 960))
                 .build()
             analise.setAnalyzer(analiseExecutor) { proxy ->
                 val midia = proxy.image
                 if (midia == null || !ativoAgora.get()) { proxy.close(); return@setAnalyzer }
                 val rotacao = proxy.imageInfo.rotationDegrees
+                if (vm.estado.value is FacialEstado.Capturando) {
+                    // Piscou: este frame vira a foto. `enviar` muda o estado na hora, então só um frame entra.
+                    val jpeg = try { frameParaJpeg(proxy, rotacao) } catch (_: Exception) { null } finally { proxy.close() }
+                    if (jpeg != null) vm.enviar(jpeg) else vm.falhaNaCaptura()
+                    return@setAnalyzer
+                }
                 // A bounding box vem no sistema de coordenadas já girado.
                 val larguraFrame = (if (rotacao % 180 == 0) proxy.width else proxy.height).toFloat()
                 detector.process(InputImage.fromMediaImage(midia, rotacao))
@@ -242,7 +243,7 @@ private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewM
             val seletor = if (p.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             runCatching {
                 p.unbindAll()
-                p.bindToLifecycle(lifecycleOwner, seletor, preview, analise, captura)
+                p.bindToLifecycle(lifecycleOwner, seletor, preview, analise)
             }.onFailure {
                 Log.w("Facial", "câmera indisponível: ${it.javaClass.simpleName}")
                 vm.falhaNaCamera()
@@ -259,29 +260,42 @@ private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewM
 }
 
 /**
- * Tira UMA foto em memória e devolve o jpeg já girado/reduzido (`null` = falhou). Nada vai pra disco.
- * O callback roda no executor principal (não é desligado com a tela, então o `ImageProxy` sempre
- * fecha); só a cópia dos bytes acontece lá e o decode/redimensionamento vai pra `Default`.
+ * Frame YUV_420_888 da análise → JPEG já girado (`null` = falhou). Só em memória; roda na thread do
+ * analisador (720×960 leva dezenas de ms). Nada vai pra disco.
  */
-private suspend fun capturarJpeg(captura: ImageCapture, executor: Executor): ByteArray? {
-    val bruto: Pair<ByteArray, Int> = suspendCancellableCoroutine { cont ->
-        captura.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
-            override fun onCaptureSuccess(image: ImageProxy) {
-                val copia = try {
-                    val buf = image.planes[0].buffer
-                    ByteArray(buf.remaining()).also { buf.get(it) } to image.imageInfo.rotationDegrees
-                } catch (_: Exception) {
-                    null
-                } finally {
-                    image.close()
-                }
-                if (cont.isActive) cont.resume(copia)
-            }
+private fun frameParaJpeg(proxy: ImageProxy, rotacao: Int): ByteArray? {
+    val nv21 = yuvParaNv21(proxy) ?: return null
+    val saida = ByteArrayOutputStream()
+    if (!YuvImage(nv21, ImageFormat.NV21, proxy.width, proxy.height, null).compressToJpeg(Rect(0, 0, proxy.width, proxy.height), 92, saida)) return null
+    return FacialViewModel.prepararJpeg(saida.toByteArray(), rotacao)
+}
 
-            override fun onError(exception: ImageCaptureException) {
-                if (cont.isActive) cont.resume(null)
-            }
-        })
-    } ?: return null
-    return withContext(Dispatchers.Default) { runCatching { FacialViewModel.prepararJpeg(bruto.first, bruto.second) }.getOrNull() }
+/** Planos Y/U/V (com `pixelStride`/`rowStride` quaisquer) → buffer NV21 (Y, depois V e U intercalados). */
+private fun yuvParaNv21(proxy: ImageProxy): ByteArray? {
+    if (proxy.format != ImageFormat.YUV_420_888 || proxy.planes.size < 3) return null
+    val w = proxy.width
+    val h = proxy.height
+    val saida = ByteArray(w * h * 3 / 2)
+    val y = proxy.planes[0]
+    val u = proxy.planes[1]
+    val v = proxy.planes[2]
+    var pos = 0
+    val yBuf = y.buffer
+    for (linha in 0 until h) {
+        yBuf.position(linha * y.rowStride)
+        if (y.pixelStride == 1) {
+            yBuf.get(saida, pos, w); pos += w
+        } else {
+            for (col in 0 until w) saida[pos++] = yBuf.get(linha * y.rowStride + col * y.pixelStride)
+        }
+    }
+    val uBuf = u.buffer
+    val vBuf = v.buffer
+    for (linha in 0 until h / 2) {
+        for (col in 0 until w / 2) {
+            saida[pos++] = vBuf.get(linha * v.rowStride + col * v.pixelStride)
+            saida[pos++] = uBuf.get(linha * u.rowStride + col * u.pixelStride)
+        }
+    }
+    return saida
 }
