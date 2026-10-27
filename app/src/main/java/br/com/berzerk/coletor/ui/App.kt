@@ -39,6 +39,9 @@ import br.com.berzerk.coletor.ui.telas.LoginScreen
 import br.com.berzerk.coletor.ui.telas.RecebimentoScreen
 import br.com.berzerk.coletor.ui.telas.RevisaoModeloScreen
 import br.com.berzerk.coletor.ui.telas.RevisaoScreen
+import br.com.berzerk.coletor.ui.telas.impressao.ImpressaoAjustesScreen
+import br.com.berzerk.coletor.ui.telas.impressao.ImpressaoListaScreen
+import br.com.berzerk.coletor.ui.telas.impressao.ImpressaoProdutoScreen
 import br.com.berzerk.coletor.ui.theme.Preto
 import kotlinx.coroutines.delay
 
@@ -52,6 +55,9 @@ object Rotas {
     const val REVISAO_MODELO = "revisao/{chave}"
     const val LEITURA = "leitura"
     const val CONFIG = "config"
+    const val IMPRESSAO = "impressao"
+    const val IMPRESSAO_PRODUTO = "impressao/p/{chave}"
+    const val IMPRESSAO_AJUSTES = "impressao/ajustes"
     const val INVENTARIO = "inventario"
     const val INVENTARIO_SESSAO = "inventario/{sessaoId}"
     const val INVENTARIO_LEITURA = "inventario/{sessaoId}/ler?nome={nome}"
@@ -59,6 +65,7 @@ object Rotas {
     fun inventarioLeitura(sessaoId: String, nome: String) = "inventario/$sessaoId/ler?nome=${Uri.encode(nome)}"
     fun conferencia(loteId: String) = "conferencia/$loteId"
     fun revisaoModelo(chave: String) = "revisao/${Uri.encode(chave)}"
+    fun impressaoProduto(chave: String) = "impressao/p/${Uri.encode(chave)}"
 }
 
 @Composable
@@ -126,6 +133,7 @@ fun App() {
                     irRecebimento = { nav.navigate(Rotas.RECEBIMENTO) },
                     irRevisao = { nav.navigate(Rotas.REVISAO) },
                     irInventario = { nav.navigate(Rotas.INVENTARIO) },
+                    irImpressao = { nav.navigate(Rotas.IMPRESSAO) },
                     irConfig = { nav.navigate(Rotas.CONFIG) },
                 )
             }
@@ -174,6 +182,18 @@ fun App() {
                     voltar = { nav.popBackStack() },
                 )
             }
+            composable(Rotas.IMPRESSAO) {
+                ImpressaoListaScreen(
+                    voltar = { nav.popBackStack() },
+                    abrirProduto = { nav.navigate(Rotas.impressaoProduto(it)) },
+                    irAjustes = { nav.navigate(Rotas.IMPRESSAO_AJUSTES) },
+                )
+            }
+            composable(Rotas.IMPRESSAO_PRODUTO) { entrada ->
+                val chave = entrada.arguments?.getString("chave") ?: return@composable
+                ImpressaoProdutoScreen(chave = chave, voltar = { nav.popBackStack() }, irAjustes = { nav.navigate(Rotas.IMPRESSAO_AJUSTES) })
+            }
+            composable(Rotas.IMPRESSAO_AJUSTES) { ImpressaoAjustesScreen(voltar = { nav.popBackStack() }) }
             composable(Rotas.CONFIG) { ConfigScreen(voltar = { nav.popBackStack() }) }
         }
         AtualizacaoOverlay()

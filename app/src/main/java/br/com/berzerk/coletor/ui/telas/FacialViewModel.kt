@@ -25,8 +25,8 @@ import kotlin.math.max
 sealed interface FacialEstado {
     /** Nenhum rosto utilizável ainda; `aviso` explica o porquê. */
     data class Procurando(val aviso: String = AVISO_PROCURANDO) : FacialEstado
-    data object VireOLado : FacialEstado
-    data object OlheParaFrente : FacialEstado
+    /** Rosto de frente e perto: esperando a piscada (os dois olhos). */
+    data object Pisque : FacialEstado
     data object Capturando : FacialEstado
     data object Enviando : FacialEstado
     data class Sucesso(val nome: String) : FacialEstado
@@ -38,15 +38,18 @@ sealed interface FacialEstado {
 }
 
 /**
- * Identificação do operador por rosto. Liveness simples (virar o rosto e voltar
- * pra frente) sobre o que o ML Kit entrega por frame; depois captura UM jpeg em
- * memória e manda pro Nexus. A foto nunca vai pra disco nem pra log.
+ * Identificação do operador por rosto. Liveness simples (uma piscada com os dois
+ * olhos, com o rosto de frente) sobre a classificação de olho aberto que o ML Kit
+ * entrega por frame; depois captura UM jpeg em memória e manda pro Nexus. A foto
+ * nunca vai pra disco nem pra log.
  */
 class FacialViewModel : ViewModel() {
     private val _estado = MutableStateFlow<FacialEstado>(FacialEstado.Procurando())
     val estado: StateFlow<FacialEstado> = _estado
 
-    private var framesDeFrente = 0
+    /** Viu os dois olhos fechados (e quando): a piscada completa quando reabrem logo depois. */
+    private var olhosFechados = false
+    private var fechouEm = 0L
     private var desde = agora()
     private var vigia: Job? = null
 
@@ -61,7 +64,7 @@ class FacialViewModel : ViewModel() {
         }
     }
 
-    private fun ativo(e: FacialEstado) = e is FacialEstado.Procurando || e is FacialEstado.VireOLado || e is FacialEstado.OlheParaFrente
+    private fun ativo(e: FacialEstado) = e is FacialEstado.Procurando || e is FacialEstado.Pisque
 
     /** Troca de estado; só reinicia o relógio dos 30 s quando muda a FASE (aviso novo não conta como avanço). */
     private fun mudar(novo: FacialEstado) {
@@ -72,37 +75,45 @@ class FacialViewModel : ViewModel() {
 
     /**
      * Resultado da detecção de UM frame (thread do analisador).
-     * `larguraRelativa` = largura da bounding box ÷ largura do frame (0..1).
+     * `larguraRelativa` = largura da bounding box ÷ largura do frame (0..1);
+     * `olhoEsq`/`olhoDir` = probabilidade de cada olho estar aberto (0..1), ou -1 quando o ML Kit não classificou.
      */
     @Synchronized
-    fun aoDeteccao(rostos: Int, larguraRelativa: Float, yaw: Float, roll: Float) {
+    fun aoDeteccao(rostos: Int, larguraRelativa: Float, yaw: Float, roll: Float, olhoEsq: Float, olhoDir: Float) {
         val atual = _estado.value
         if (!ativo(atual)) return
+        val deFrente = abs(yaw) <= YAW_FRENTE && abs(roll) <= ROLL_MAX
         when {
             rostos == 0 -> {
-                framesDeFrente = 0
+                olhosFechados = false
                 mudar(FacialEstado.Procurando())
             }
             rostos > 1 -> {
-                framesDeFrente = 0
+                olhosFechados = false
                 mudar(FacialEstado.Procurando("Só uma pessoa no quadro"))
             }
+            larguraRelativa < LARGURA_MIN -> {
+                olhosFechados = false
+                mudar(FacialEstado.Procurando("Aproxime-se"))
+            }
+            !deFrente -> {
+                olhosFechados = false
+                mudar(FacialEstado.Procurando("Olhe para a frente"))
+            }
             atual is FacialEstado.Procurando -> {
-                if (larguraRelativa < LARGURA_MIN) mudar(FacialEstado.Procurando("Aproxime-se")) else mudar(FacialEstado.VireOLado)
+                olhosFechados = false
+                mudar(FacialEstado.Pisque)
             }
-            atual is FacialEstado.VireOLado -> {
-                // Independe do sinal do ângulo: vale virar pra qualquer lado.
-                if (abs(yaw) >= YAW_VIRADO) {
-                    framesDeFrente = 0
-                    mudar(FacialEstado.OlheParaFrente)
-                }
-            }
-            atual is FacialEstado.OlheParaFrente -> {
-                if (abs(yaw) <= YAW_FRENTE && abs(roll) <= ROLL_MAX) {
-                    framesDeFrente++
-                    if (framesDeFrente >= FRAMES_FRENTE) mudar(FacialEstado.Capturando)
-                } else {
-                    framesDeFrente = 0
+            atual is FacialEstado.Pisque -> {
+                if (olhoEsq < 0f || olhoDir < 0f) return // frame sem classificação dos olhos
+                val fechados = olhoEsq < OLHO_FECHADO && olhoDir < OLHO_FECHADO
+                val abertos = olhoEsq > OLHO_ABERTO && olhoDir > OLHO_ABERTO
+                if (!olhosFechados && fechados) {
+                    olhosFechados = true
+                    fechouEm = agora()
+                } else if (olhosFechados && abertos) {
+                    // Fechou e reabriu rápido = piscada; demorou demais (olhos fechados parado) = recomeça.
+                    if (agora() - fechouEm <= PISCADA_MAX_MS) mudar(FacialEstado.Capturando) else olhosFechados = false
                 }
             }
         }
@@ -110,7 +121,7 @@ class FacialViewModel : ViewModel() {
 
     @Synchronized
     fun tentarDeNovo() {
-        framesDeFrente = 0
+        olhosFechados = false
         desde = agora()
         _estado.value = FacialEstado.Procurando()
     }
@@ -157,10 +168,13 @@ class FacialViewModel : ViewModel() {
         private const val TAG = "Facial"
         private const val TIMEOUT_MS = 30_000L
         private const val LARGURA_MIN = 0.30f
-        private const val YAW_VIRADO = 25f
         private const val YAW_FRENTE = 12f
         private const val ROLL_MAX = 15f
-        private const val FRAMES_FRENTE = 3
+        /** Probabilidade de olho aberto do ML Kit: abaixo disso conta como fechado, acima como aberto (meio = ignora). */
+        private const val OLHO_FECHADO = 0.3f
+        private const val OLHO_ABERTO = 0.6f
+        /** Tempo máximo entre fechar e reabrir pra contar como piscada. */
+        private const val PISCADA_MAX_MS = 1_500L
         private const val LADO_MAX = 1024
         private const val QUALIDADE = 85
 

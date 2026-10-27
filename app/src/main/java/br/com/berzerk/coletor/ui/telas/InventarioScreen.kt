@@ -53,6 +53,7 @@ import br.com.berzerk.coletor.data.ResultadoCriar
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
+import br.com.berzerk.coletor.ui.comum.ChipCategoria
 import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.ui.comum.NovaPastaDialog
 import br.com.berzerk.coletor.ui.comum.Rotulo

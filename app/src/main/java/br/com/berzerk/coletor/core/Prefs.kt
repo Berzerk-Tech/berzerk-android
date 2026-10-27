@@ -43,6 +43,44 @@ class Prefs(context: Context) {
         get() = prefs.getStringSet(K_PASTAS_FECHADAS, emptySet())?.toSet().orEmpty()
         set(v) = prefs.edit().putStringSet(K_PASTAS_FECHADAS, v).apply()
 
+    /** Impressora Niimbot pareada (mac BLE e nome de exibição). Não são segredo. */
+    var impressoraMac: String?
+        get() = prefs.getString(K_IMP_MAC, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().apply { if (v == null) remove(K_IMP_MAC) else putString(K_IMP_MAC, v) }.apply()
+
+    var impressoraNome: String?
+        get() = prefs.getString(K_IMP_NOME, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().apply { if (v == null) remove(K_IMP_NOME) else putString(K_IMP_NOME, v) }.apply()
+
+    /** Largura e altura do rolo de etiqueta, em mm (padrão 80×100). */
+    var etiquetaLarguraMm: Int
+        get() = prefs.getInt(K_ETQ_LARGURA, 80)
+        set(v) = prefs.edit().putInt(K_ETQ_LARGURA, v).apply()
+
+    var etiquetaAlturaMm: Int
+        get() = prefs.getInt(K_ETQ_ALTURA, 100)
+        set(v) = prefs.edit().putInt(K_ETQ_ALTURA, v).apply()
+
+    /** Tipo de papel (`LabelType` da Niimbot; 1 = com gap, o padrão da B31). */
+    var impressoraPapel: Int
+        get() = prefs.getInt(K_IMP_PAPEL, 1)
+        set(v) = prefs.edit().putInt(K_IMP_PAPEL, v).apply()
+
+    /** Densidade 1..5. */
+    var impressoraDensidade: Int
+        get() = prefs.getInt(K_IMP_DENSIDADE, 3)
+        set(v) = prefs.edit().putInt(K_IMP_DENSIDADE, v).apply()
+
+    /** Nome de um `ModoImpressao`. */
+    var impressoraModo: String
+        get() = prefs.getString(K_IMP_MODO, "AUTO") ?: "AUTO"
+        set(v) = prefs.edit().putString(K_IMP_MODO, v).apply()
+
+    /** Cópias por toque num tamanho (1..20). */
+    var impressaoQtdPorToque: Int
+        get() = prefs.getInt(K_IMP_QTD, 1)
+        set(v) = prefs.edit().putInt(K_IMP_QTD, v).apply()
+
     private val _potencia = MutableStateFlow(prefs.getInt(K_POTENCIA, POTENCIA_PADRAO))
     val potencia: StateFlow<Int> = _potencia
     fun setPotencia(dbm: Int) {
@@ -109,6 +147,14 @@ class Prefs(context: Context) {
         private const val K_COLETOR_ID = "coletor_id"
         private const val K_PASTAS = "pastas_json"
         private const val K_PASTAS_FECHADAS = "pastas_fechadas"
+        private const val K_IMP_MAC = "impressora_mac"
+        private const val K_IMP_NOME = "impressora_nome"
+        private const val K_ETQ_LARGURA = "etiqueta_largura_mm"
+        private const val K_ETQ_ALTURA = "etiqueta_altura_mm"
+        private const val K_IMP_PAPEL = "impressora_papel"
+        private const val K_IMP_DENSIDADE = "impressora_densidade"
+        private const val K_IMP_MODO = "impressora_modo"
+        private const val K_IMP_QTD = "impressao_qtd_por_toque"
         private const val K_POTENCIA = "potencia_dbm"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26
