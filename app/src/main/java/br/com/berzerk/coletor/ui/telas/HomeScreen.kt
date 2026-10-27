@@ -64,7 +64,7 @@ object MeCache {
 }
 
 @Composable
-fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: () -> Unit, irConfig: () -> Unit) {
+fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: () -> Unit, irImpressao: () -> Unit, irConfig: () -> Unit) {
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -118,6 +118,7 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: (
                 if (semPasta > 0) " · $semPasta leituras sem pasta" else ""
             MenuItem("02", "Pastas", descPastas, habilitado = true, onClick = irInventario)
             MenuItem("03", "Recebimento", "Conferir lotes no galpão e confirmar no Nexus", habilitado = podeConferir != false, onClick = irRecebimento)
+            MenuItem("04", "Impressão", "Etiquetas por produto e tamanho", habilitado = true, onClick = irImpressao)
             Spacer(Modifier.height(4.dp))
             BotaoGrande("Trocar operador", onClick = { Graph.operador.encerrar() }, contorno = true)
             Text("Versão ${Config.versao}", style = MaterialTheme.typography.bodySmall, color = TextoFraco)

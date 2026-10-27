@@ -12,6 +12,7 @@ import br.com.berzerk.coletor.auth.OperadorSessao
 import br.com.berzerk.coletor.auth.SessaoEstado
 import br.com.berzerk.coletor.data.ColetorDb
 import br.com.berzerk.coletor.data.ItagSync
+import br.com.berzerk.coletor.impressora.Impressora
 import br.com.berzerk.coletor.update.UpdateManager
 import br.com.berzerk.coletor.upload.UploadService
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,7 @@ object Graph {
     lateinit var itag: ItagSync; private set
     lateinit var update: UpdateManager; private set
     lateinit var upload: UploadService; private set
+    lateinit var impressora: Impressora; private set
     lateinit var appContext: Context; private set
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -89,6 +91,7 @@ object Graph {
         itag = ItagSync(db, { client.api }, httpExterno, scope, app.cacheDir)
         update = UpdateManager({ client.api }, httpExterno)
         upload = UploadService(app, { client.api }, prefs, db.leituras())
+        impressora = Impressora(app, prefs)
         scope.launch { client.atualizacaoObrigatoria.collect { update.marcarObrigatoria(it) } }
         scope.launch { itag.carregarStatus() }
         // Leitura já enviada há mais de 30 dias não precisa ficar no aparelho.

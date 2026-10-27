@@ -37,6 +37,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -385,4 +388,37 @@ private fun textoDoEnvio(lidas: Int, pendentes: Int, estado: br.com.berzerk.cole
     br.com.berzerk.coletor.upload.EstadoEnvio.Ocioso ->
         if (semPasta > 0) "Toque em SALVAR e escolha a pasta" to Ambar
         else if (lidas > 0 && pendentes == 0) "Tudo salvo" to Verde else "" to TextoFraco
+}
+
+/** Chip de filtro por categoria (Revisão, Pastas e Impressão): selecionado = fundo `Texto`, texto `Fundo`. */
+@Composable
+fun ChipCategoria(texto: String, selecionado: Boolean, onClick: () -> Unit) {
+    val forma = RoundedCornerShape(18.dp)
+    Box(
+        Modifier.height(36.dp).clip(forma)
+            .background(if (selecionado) Texto else Muted, forma)
+            .let { if (selecionado) it else it.border(1.dp, Borda, forma) }
+            .clickable(onClick = onClick).padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(texto, style = MaterialTheme.typography.labelLarge, color = if (selecionado) Fundo else Texto, maxLines = 1) }
+}
+
+/** Campo de busca de uma linha com o "x" pra limpar (Revisão e Impressão). */
+@Composable
+fun CampoBusca(valor: String, aoMudar: (String) -> Unit, dica: String, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = valor,
+        onValueChange = aoMudar,
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        placeholder = { Text(dica, color = TextoFraco) },
+        singleLine = true,
+        trailingIcon = {
+            if (valor.isNotEmpty()) IconButton(onClick = { aoMudar("") }) { Icon(Icons.Default.Clear, contentDescription = "Limpar", tint = TextoFraco) }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = CorCartao, unfocusedContainerColor = CorCartao,
+            focusedBorderColor = Texto, unfocusedBorderColor = Borda,
+            focusedTextColor = Texto, unfocusedTextColor = Texto, cursorColor = Texto,
+        ),
+    )
 }

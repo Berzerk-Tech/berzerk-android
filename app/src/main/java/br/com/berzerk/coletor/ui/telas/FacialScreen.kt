@@ -80,7 +80,7 @@ import kotlin.coroutines.resume
 
 /**
  * Identificação do operador por rosto, depois do login da conta do aparelho.
- * Câmera frontal + ML Kit só pra guiar o "vire o rosto e volte" (liveness
+ * Câmera frontal + ML Kit só pra guiar o "pisque os olhos" (liveness
  * simples); quem reconhece o rosto é o Nexus. Foto só em memória.
  */
 @Composable
@@ -130,7 +130,7 @@ fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
             contentAlignment = Alignment.Center,
         ) {
             if (temPermissao) {
-                CameraPreview(captura = captura, ativo = estado is FacialEstado.Procurando || estado is FacialEstado.VireOLado || estado is FacialEstado.OlheParaFrente, vm = vm)
+                CameraPreview(captura = captura, ativo = estado is FacialEstado.Procurando || estado is FacialEstado.Pisque, vm = vm)
             } else {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("O app precisa da câmera pra identificar o operador.", color = Texto, style = MaterialTheme.typography.bodyLarge)
@@ -173,8 +173,7 @@ fun FacialScreen(aoConcluir: () -> Unit, vm: FacialViewModel = viewModel()) {
 
 private fun instrucao(e: FacialEstado): String = when (e) {
     is FacialEstado.Procurando -> e.aviso
-    FacialEstado.VireOLado -> "Vire o rosto para um lado"
-    FacialEstado.OlheParaFrente -> "Agora olhe para a frente"
+    FacialEstado.Pisque -> "Pisque os olhos"
     FacialEstado.Capturando, FacialEstado.Enviando -> "Identificando..."
     is FacialEstado.Sucesso -> "Olá, ${e.nome}"
     is FacialEstado.Erro -> "Não deu certo"
@@ -201,7 +200,7 @@ private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewM
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
-                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL) // olho aberto/fechado (piscada)
                 .setMinFaceSize(0.2f)
                 .build(),
         )
@@ -234,6 +233,8 @@ private fun CameraPreview(captura: ImageCapture, ativo: Boolean, vm: FacialViewM
                             larguraRelativa = if (r != null) r.boundingBox.width() / larguraFrame else 0f,
                             yaw = r?.headEulerAngleY ?: 0f,
                             roll = r?.headEulerAngleZ ?: 0f,
+                            olhoEsq = r?.leftEyeOpenProbability ?: -1f,
+                            olhoDir = r?.rightEyeOpenProbability ?: -1f,
                         )
                     }
                     .addOnCompleteListener { proxy.close() }

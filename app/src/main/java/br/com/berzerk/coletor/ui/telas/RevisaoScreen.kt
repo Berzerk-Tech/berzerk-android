@@ -19,14 +19,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,11 +44,12 @@ import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
+import br.com.berzerk.coletor.ui.comum.CampoBusca
+import br.com.berzerk.coletor.ui.comum.ChipCategoria
 import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.ui.comum.Ponto
 import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Borda
-import br.com.berzerk.coletor.ui.theme.Fundo
 import br.com.berzerk.coletor.ui.theme.Muted
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
@@ -212,21 +210,7 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
             if (sync.erro != null) Text(sync.erro!!, style = MaterialTheme.typography.bodySmall, color = Vermelho)
         }
 
-        OutlinedTextField(
-            value = ui.busca,
-            onValueChange = vm::setBusca,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            placeholder = { Text("Buscar produto, SKU ou EAN…", color = TextoFraco) },
-            singleLine = true,
-            trailingIcon = {
-                if (ui.busca.isNotEmpty()) IconButton(onClick = { vm.setBusca("") }) { Icon(Icons.Default.Clear, contentDescription = "Limpar", tint = TextoFraco) }
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = CorCartao, unfocusedContainerColor = CorCartao,
-                focusedBorderColor = Texto, unfocusedBorderColor = Borda,
-                focusedTextColor = Texto, unfocusedTextColor = Texto, cursorColor = Texto,
-            ),
-        )
+        CampoBusca(ui.busca, vm::setBusca, "Buscar produto, SKU ou EAN…")
 
         LazyRow(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item { ChipCategoria("Todas (${ui.resumos.size})", ui.categoriaSel == null) { vm.escolherCategoria(null) } }
@@ -268,18 +252,6 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
             items(ui.filtrados, key = { it.chave }) { m -> CartaoModelo(m) { abrirModelo(m.chave) } }
         }
     }
-}
-
-@Composable
-internal fun ChipCategoria(texto: String, selecionado: Boolean, onClick: () -> Unit) {
-    val forma = RoundedCornerShape(18.dp)
-    Box(
-        Modifier.height(36.dp).clip(forma)
-            .background(if (selecionado) Texto else Muted, forma)
-            .let { if (selecionado) it else it.border(1.dp, Borda, forma) }
-            .clickable(onClick = onClick).padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(texto, style = MaterialTheme.typography.labelLarge, color = if (selecionado) Fundo else Texto, maxLines = 1) }
 }
 
 @Composable
