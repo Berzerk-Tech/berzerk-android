@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +52,7 @@ import br.com.berzerk.coletor.impressora.TrabalhoImpressao
 import br.com.berzerk.coletor.impressora.dimensoesPx
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
+import br.com.berzerk.coletor.ui.comum.ChipCategoria
 import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.theme.Ambar
@@ -83,6 +85,8 @@ fun ImpressaoAjustesScreen(voltar: () -> Unit) {
     var largura by remember { mutableStateOf(prefs.etiquetaLarguraMm.toString()) }
     var altura by remember { mutableStateOf(prefs.etiquetaAlturaMm.toString()) }
     var papel by remember { mutableStateOf(prefs.impressoraPapel) }
+    var textoEmCima by remember { mutableStateOf(prefs.etiquetaTextoEmCima) }
+    var agrupar by remember { mutableStateOf(prefs.impressoraAgruparLinhas) }
     var densidade by remember { mutableFloatStateOf(prefs.impressoraDensidade.toFloat()) }
     var modo by remember { mutableStateOf(runCatching { ModoImpressao.valueOf(prefs.impressoraModo) }.getOrDefault(ModoImpressao.AUTO)) }
 
@@ -156,6 +160,13 @@ fun ImpressaoAjustesScreen(voltar: () -> Unit) {
                         CampoMm("Altura (mm)", altura, ALT_MIN_MM, Modifier.weight(1f)) { altura = it; it.toIntOrNull()?.takeIf { v -> v in ALT_MIN_MM..300 }?.let { v -> prefs.etiquetaAlturaMm = v } }
                     }
                     Spacer(Modifier.height(12.dp))
+                    Text("Nome e EAN", color = TextoFraco, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChipCategoria("Embaixo", !textoEmCima) { textoEmCima = false; prefs.etiquetaTextoEmCima = false }
+                        ChipCategoria("Em cima", textoEmCima) { textoEmCima = true; prefs.etiquetaTextoEmCima = true }
+                    }
+                    Spacer(Modifier.height(12.dp))
                     Text("Papel", color = TextoFraco, style = MaterialTheme.typography.bodySmall)
                     Dropdown((TipoPapel.opcoes.firstOrNull { it.first == papel } ?: TipoPapel.opcoes[0]).second, TipoPapel.opcoes.map { it.second }) { i ->
                         papel = TipoPapel.opcoes[i].first; prefs.impressoraPapel = papel
@@ -173,6 +184,13 @@ fun ImpressaoAjustesScreen(voltar: () -> Unit) {
                         modo = ModoImpressao.entries[i]; prefs.impressoraModo = modo.name
                     }
                     Text("Se a B31 não imprimir ou sair em branco, teste os outros modos.", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Envio rápido (várias linhas por escrita Bluetooth)", color = Texto, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(8.dp))
+                        Switch(checked = agrupar, onCheckedChange = { agrupar = it; prefs.impressoraAgruparLinhas = it })
+                    }
+                    Text("Desligue se a etiqueta sair com linhas faltando.", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
                 }
             }
 
@@ -189,7 +207,7 @@ fun ImpressaoAjustesScreen(voltar: () -> Unit) {
 
             Rotulo("Prévia da etiqueta de teste")
             val (lPx, aPx) = dimensoesPx(lMm, aMm)
-            PreviaEtiqueta("teste-$lMm-$aMm", lPx, aPx) { EtiquetaRender.etiquetaDeTeste(lMm, aMm) }
+            PreviaEtiqueta("teste-$lMm-$aMm", lPx, aPx, textoEmCima) { EtiquetaRender.etiquetaDeTeste(lMm, aMm, textoEmCima) }
         }
     }
 }

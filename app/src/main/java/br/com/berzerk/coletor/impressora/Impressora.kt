@@ -36,6 +36,8 @@ data class TrabalhoImpressao(
     val larguraPx: Int,
     val alturaPx: Int,
     val copias: Int,
+    /** Preenchido por [Impressora.enfileirar]; casa com [Impressora.ItemFila.id]. */
+    val id: Long = 0,
 )
 
 /**
@@ -63,6 +65,16 @@ class Impressora(ctx: Context, private val prefs: Prefs) {
 
     private val canal = Channel<TrabalhoImpressao>(Channel.UNLIMITED)
     private val pendentes = AtomicInteger(0)
+
+    /** Um item da fila como a tela mostra: o que está imprimindo primeiro, depois os que esperam, na ordem. */
+    data class ItemFila(val id: Long, val rotulo: String, val copias: Int, val imprimindo: Boolean)
+
+    private val _fila = MutableStateFlow<List<ItemFila>>(emptyList())
+    /** Atualiza no toque (entra), quando o trabalho começa (vira `imprimindo`) e quando termina (sai). */
+    val fila: StateFlow<List<ItemFila>> = _fila
+    private val proximoId = java.util.concurrent.atomic.AtomicLong(1)
+
+    private fun filaAtualizar(muda: (List<ItemFila>) -> List<ItemFila>) { _fila.value = muda(_fila.value) }
     private val mutexConexao = Mutex()
     @Volatile private var bateria: Int? = null
 
@@ -113,8 +125,16 @@ class Impressora(ctx: Context, private val prefs: Prefs) {
     }
 
     fun enfileirar(job: TrabalhoImpressao) {
+        val id = proximoId.getAndIncrement()
         pendentes.incrementAndGet()
-        canal.trySend(job)
+        filaAtualizar { it + ItemFila(id, job.rotulo, job.copias, imprimindo = false) }
+        canal.trySend(job.copy(id = id))
+    }
+
+    /** Tira da fila tudo que ainda não começou (o que está imprimindo termina). */
+    fun limparFila() {
+        val n = descartarFila(0)
+        if (n > 0) registrar("Fila limpa: $n etiqueta${if (n > 1) "s" else ""} descartada${if (n > 1) "s" else ""}")
     }
 
     private suspend fun conectarAgora(mac: String, nomeNovo: String?): Boolean = mutexConexao.withLock {
@@ -162,14 +182,16 @@ class Impressora(ctx: Context, private val prefs: Prefs) {
                     }
                     // Sem impressora, o resto da fila também não sai: descarta tudo de uma vez em vez de
                     // tentar reconectar (10 s cada) etiqueta por etiqueta.
-                    descartarFila(1)
+                    val n = descartarFila(1)
+                    if (n > 0) registrar("Erro: $n etiqueta${if (n > 1) "s" else ""} descartada${if (n > 1) "s" else ""} (${n + 1} na fila sem impressora)")
                     return
                 }
             }
             val nome = nomeSalvo()
             _estado.value = EstadoImpressora.Imprimindo(nome, pendentes.get())
+            filaAtualizar { l -> l.map { if (it.id == job.id) it.copy(imprimindo = true) else it } }
             registrar("Imprimindo ${job.rotulo} ×${job.copias}…")
-            val bitmap = EtiquetaRender.renderizar(job.tamanho, job.ean, job.nome, job.larguraPx, job.alturaPx)
+            val bitmap = EtiquetaRender.renderizar(job.tamanho, job.ean, job.nome, job.larguraPx, job.alturaPx, prefs.etiquetaTextoEmCima)
             val img = try { CodificadorImagem.codificar(bitmap) } finally { bitmap.recycle() }
             TarefaImpressao.imprimir(
                 proto, img, job.copias,
@@ -177,6 +199,7 @@ class Impressora(ctx: Context, private val prefs: Prefs) {
                 papel = prefs.impressoraPapel,
                 modo = runCatching { ModoImpressao.valueOf(prefs.impressoraModo) }.getOrDefault(ModoImpressao.AUTO),
                 cabecaPx = CABECA_PX,
+                agrupar = prefs.impressoraAgruparLinhas,
             )
             registrar("Saiu ${job.rotulo}")
             _ultimaImpressaoEm.value = System.currentTimeMillis()
@@ -189,15 +212,23 @@ class Impressora(ctx: Context, private val prefs: Prefs) {
             registrar("Erro: $msg")
         } finally {
             pendentes.decrementAndGet()
+            filaAtualizar { l -> l.filterNot { it.id == job.id } }
         }
     }
 
-    /** Esvazia a fila (o trabalho atual, já fora do canal, conta em [jaContados]) e avisa no console. */
-    private fun descartarFila(jaContados: Int) {
+    /** Esvazia o que ainda está no canal (o trabalho atual já saiu dele) e devolve quantos saíram. */
+    private fun descartarFila(@Suppress("UNUSED_PARAMETER") jaContados: Int): Int {
         var n = 0
-        while (canal.tryReceive().isSuccess) n++
-        if (n == 0) return
+        val ids = HashSet<Long>()
+        while (true) {
+            val r = canal.tryReceive()
+            val job = r.getOrNull() ?: break
+            n++
+            ids += job.id
+        }
+        if (n == 0) return 0
         pendentes.addAndGet(-n)
-        registrar("Erro: $n etiqueta${if (n > 1) "s" else ""} descartada${if (n > 1) "s" else ""} (${n + jaContados} na fila sem impressora)")
+        filaAtualizar { l -> l.filterNot { it.id in ids } }
+        return n
     }
 }

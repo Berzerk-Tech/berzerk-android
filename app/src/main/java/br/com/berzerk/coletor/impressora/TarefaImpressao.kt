@@ -32,6 +32,7 @@ object TarefaImpressao {
         papel: Int,
         modo: ModoImpressao,
         cabecaPx: Int = 600,
+        agrupar: Boolean = true,
         progresso: ((Int, Int) -> Unit)? = null,
     ) {
         val efetivo = resolverModo(modo, proto.versaoProtocolo, proto.modeloId)
@@ -45,14 +46,14 @@ object TarefaImpressao {
                     proto.enviar(Pacotes.printStatus().umaViaCopia())
                     proto.enviarTodos(
                         listOf(Pacotes.pageSize13b(img.linhas, img.colunas, copias)) + pacotesImagem + Pacotes.pageEnd(),
-                        TIMEOUT_PAGINA_MS, progresso,
+                        TIMEOUT_PAGINA_MS, progresso, agrupar,
                     )
                 }
                 ModoImpressao.B1 -> {
                     proto.enviarTodos(listOf(Pacotes.densidade(densidade), Pacotes.tipoPapel(papel), Pacotes.printStart7b(copias)))
                     proto.enviarTodos(
                         listOf(Pacotes.pageStart(), Pacotes.pageSize6b(img.linhas, img.colunas, copias)) + pacotesImagem + Pacotes.pageEnd(),
-                        TIMEOUT_PAGINA_MS, progresso,
+                        TIMEOUT_PAGINA_MS, progresso, agrupar,
                     )
                 }
                 ModoImpressao.D110 -> {
@@ -60,7 +61,7 @@ object TarefaImpressao {
                     proto.enviarTodos(
                         listOf(Pacotes.printClear(), Pacotes.pageStart(), Pacotes.pageSize4b(img.linhas, img.colunas), Pacotes.quantidade(copias)) +
                             pacotesImagem + Pacotes.pageEnd(),
-                        TIMEOUT_PAGINA_MS, progresso,
+                        TIMEOUT_PAGINA_MS, progresso, agrupar,
                     )
                 }
                 ModoImpressao.AUTO -> error("AUTO já foi resolvido")

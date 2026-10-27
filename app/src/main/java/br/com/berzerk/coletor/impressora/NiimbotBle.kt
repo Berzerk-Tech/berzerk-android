@@ -227,13 +227,19 @@ class NiimbotBle(private val ctx: Context) {
         return null
     }
 
-    /** Escreve sem resposta, em pedaços de `mtu - 3`, esperando cada `onCharacteristicWrite` (o GATT é serial). */
+    /** Quanto cabe numa escrita (`mtu - 3`); quem agrupa pacotes numa escrita usa isso como teto. */
+    val bytesPorEscrita: Int get() = (mtu - 3).coerceAtLeast(20)
+
+    /**
+     * Escreve sem resposta, em pedaços de `mtu - 3`, esperando cada `onCharacteristicWrite` (o GATT é serial).
+     * Sem pausa entre escritas: no Android a confirmação já faz o controle de fluxo (o niimbluelib espera 10 ms
+     * porque o Web Bluetooth não tem isso, e eram centenas de linhas por etiqueta).
+     */
     suspend fun escrever(bytes: ByteArray) = mutexEscrita.withLock {
         val g = gatt
         val c = caracteristica
         if (g == null || c == null || !_conectado.value) throw ImpressoraException("Impressora desconectada")
-        delay(INTERVALO_PACOTES_MS)
-        val max = (mtu - 3).coerceAtLeast(20)
+        val max = bytesPorEscrita
         var i = 0
         while (i < bytes.size) {
             val parte = bytes.copyOfRange(i, minOf(i + max, bytes.size))
@@ -262,6 +268,5 @@ class NiimbotBle(private val ctx: Context) {
         private val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private const val BASE_16_BITS = "-0000-1000-8000-00805f9b34fb"
         private val PREFIXOS = listOf("B31", "B21", "B1", "D110")
-        private const val INTERVALO_PACOTES_MS = 10L
     }
 }
