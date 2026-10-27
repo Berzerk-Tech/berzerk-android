@@ -172,10 +172,6 @@ fun App() {
                 LeituraColetorScreen(
                     alvo = AlvoLeitura.Inventario(sessaoId, nome),
                     voltar = { nav.popBackStack() },
-                    trocarSessao = { s ->
-                        PreviaSessoes.guardar(s)
-                        nav.navigate(Rotas.inventarioLeitura(s.id, s.nome)) { popUpTo(Rotas.INVENTARIO_LEITURA) { inclusive = true } }
-                    },
                 )
             }
             composable(Rotas.CONFIG) { ConfigScreen(voltar = { nav.popBackStack() }) }

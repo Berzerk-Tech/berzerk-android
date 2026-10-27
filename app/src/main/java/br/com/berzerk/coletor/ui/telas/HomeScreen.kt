@@ -73,8 +73,6 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: (
     val chave = ativo?.let { "${it.id}:${it.expiraEm}" }
     var me by remember(chave) { mutableStateOf(MeCache.valor(chave)) }
     var erroMe by remember(chave) { mutableStateOf<String?>(null) }
-    var ultimo by remember { mutableStateOf(UltimoInventario.sessao) }
-    var ultimoCarregado by remember { mutableStateOf(UltimoInventario.sessao != null) }
 
     LaunchedEffect(sessao, chave) {
         if (sessao is SessaoEstado.Logado && ativo != null && me == null) {
@@ -83,13 +81,6 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: (
                 .onFailure { erroMe = it.mensagemCurta() }
         }
     }
-    LaunchedEffect(sessao, chave) {
-        if (sessao is SessaoEstado.Logado && ativo != null) {
-            runCatching { ordenarSessoes(Graph.api.listarSessoes("contagem").sessoes).firstOrNull() }
-                .onSuccess { ultimo = it; UltimoInventario.sessao = it; ultimoCarregado = true }
-        }
-    }
-
     val email = ativo?.username?.takeIf { it.isNotBlank() } ?: me?.rotulo ?: ativo?.nome?.takeIf { it.isNotBlank() } ?: "—"
     val podeConferir = me?.let { it.tem(Config.PERMISSAO_CONFERIR) || it.tem(Config.PERMISSAO_OPERATE) }
 
@@ -122,9 +113,10 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: (
                 Cartao { Text("Sua conta ainda não tem acesso ao recebimento. Peça ao admin o papel coletor-recebimento no Nexus.", color = Ambar) }
             }
             MenuItem("01", "Revisão RFID", "Escolha o modelo, dê play e veja por tamanho o que tem na sua frente", habilitado = true, onClick = irRevisao)
-            val descInventario = ultimo?.let { "Último: ${it.nome} · ${formatarInteiro(it.pecas)} peças" }
-                ?: if (ultimoCarregado) "Nenhum inventário ainda" else "Contar o estoque inteiro e mandar pro Nexus"
-            MenuItem("02", "Inventário", descInventario, habilitado = true, onClick = irInventario)
+            val semPasta by remember { Graph.db.leituras().contarSemPastaTotal() }.collectAsState(0)
+            val descPastas = "Contagens abertas e fechadas; a leitura entra na pasta que você escolhe no Salvar" +
+                if (semPasta > 0) " · $semPasta leituras sem pasta" else ""
+            MenuItem("02", "Pastas", descPastas, habilitado = true, onClick = irInventario)
             MenuItem("03", "Recebimento", "Conferir lotes no galpão e confirmar no Nexus", habilitado = podeConferir != false, onClick = irRecebimento)
             Spacer(Modifier.height(4.dp))
             BotaoGrande("Trocar operador", onClick = { Graph.operador.encerrar() }, contorno = true)

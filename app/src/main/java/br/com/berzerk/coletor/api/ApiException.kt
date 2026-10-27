@@ -41,6 +41,18 @@ open class ApiException(
     }
 }
 
+/** Códigos `error` do Nexus que o app trata (pastas = sessões de contagem). */
+object CodigoErro {
+    /** 409 ao abrir pasta: já existe uma aberta com esse nome (Nexus novo, várias abertas). */
+    const val PASTA_NOME_EM_USO = "pasta_nome_em_uso"
+
+    /** 409 ao abrir pasta: Nexus velho, só uma aberta por vez; o corpo traz `sessaoId` da existente. */
+    const val SESSAO_ABERTA_EXISTENTE = "sessao_aberta_existente"
+
+    /** 409 ao enviar leitura: a pasta foi fechada no meio. */
+    const val SESSAO_NAO_ACEITA_LEITURAS = "sessao_nao_aceita_leituras"
+}
+
 object JsonCfg {
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -62,6 +74,12 @@ fun Throwable.mensagemCurta(): String = when (this) {
     is ApiException -> mensagem ?: when (status) {
         401 -> "Sessão expirada. Entre de novo."
         403 -> if (this is OperadorSessaoInvalidaErro) "Sessão do operador expirou. Identifique-se de novo." else "Sem permissão (${codigo ?: "403"})."
+        409 -> when (codigo) {
+            CodigoErro.PASTA_NOME_EM_USO -> "Já existe uma pasta aberta com esse nome."
+            CodigoErro.SESSAO_ABERTA_EXISTENTE -> "O Nexus ainda só aceita uma pasta aberta por vez."
+            CodigoErro.SESSAO_NAO_ACEITA_LEITURAS -> "A pasta foi fechada no Nexus. Escolha outra."
+            else -> "Erro 409${codigo?.let { " ($it)" } ?: ""}."
+        }
         404 -> "Não encontrado (${codigo ?: "404"})."
         426 -> "Atualização obrigatória."
         in 500..599 -> "Nexus indisponível ($status)."

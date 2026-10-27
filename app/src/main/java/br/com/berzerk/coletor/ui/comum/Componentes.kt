@@ -362,19 +362,27 @@ fun RodapeLeitura(
     }
 }
 
-/** "N lidas · N enviadas · N pendentes" + estado do envio (Enviando… / Sem rede, vou tentar de novo / Tudo salvo). */
+/**
+ * "N lidas · N enviadas · N pendentes" + estado do envio (Enviando… / Sem rede / Salvo em {pasta}).
+ * [semPasta] > 0 = pendentes que esperam a escolha da pasta no SALVAR.
+ */
 @Composable
-fun IndicadorEnvio(lidas: Int, enviadas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio) {
-    val (texto, cor) = textoDoEnvio(lidas, pendentes, estado)
+fun IndicadorEnvio(lidas: Int, enviadas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio, semPasta: Int = 0) {
+    val (texto, cor) = textoDoEnvio(lidas, pendentes, estado, semPasta)
     Column(Modifier.fillMaxWidth()) {
         Text("$lidas lidas · $enviadas enviadas · $pendentes pendentes", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TextoFraco)
         if (texto.isNotEmpty()) Text(texto, style = MaterialTheme.typography.bodySmall, color = cor)
     }
 }
 
-private fun textoDoEnvio(lidas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio): Pair<String, Color> = when (estado) {
+private fun textoDoEnvio(lidas: Int, pendentes: Int, estado: br.com.berzerk.coletor.upload.EstadoEnvio, semPasta: Int): Pair<String, Color> = when (estado) {
     is br.com.berzerk.coletor.upload.EstadoEnvio.Enviando -> "Enviando…" to Texto
     is br.com.berzerk.coletor.upload.EstadoEnvio.SemRede -> "Sem rede, vou tentar de novo" to Ambar
     is br.com.berzerk.coletor.upload.EstadoEnvio.Erro -> estado.motivo to Vermelho
-    br.com.berzerk.coletor.upload.EstadoEnvio.Ocioso -> if (lidas > 0 && pendentes == 0) "Tudo salvo" to Verde else "" to TextoFraco
+    is br.com.berzerk.coletor.upload.EstadoEnvio.Concluido ->
+        if (semPasta > 0) "Toque em SALVAR e escolha a pasta" to Ambar
+        else if (pendentes == 0) "Salvo em ${estado.pasta}" to Verde else "" to TextoFraco
+    br.com.berzerk.coletor.upload.EstadoEnvio.Ocioso ->
+        if (semPasta > 0) "Toque em SALVAR e escolha a pasta" to Ambar
+        else if (lidas > 0 && pendentes == 0) "Tudo salvo" to Verde else "" to TextoFraco
 }

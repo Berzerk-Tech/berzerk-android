@@ -20,12 +20,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -42,8 +40,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import br.com.berzerk.coletor.api.AbrirSessaoBody
-import br.com.berzerk.coletor.api.ApiException
 import br.com.berzerk.coletor.api.InventarioProdutoDto
 import br.com.berzerk.coletor.api.InventarioSessaoDto
 import br.com.berzerk.coletor.api.JsonCfg
@@ -52,14 +48,18 @@ import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.data.InventarioCacheEntity
 import br.com.berzerk.coletor.data.Origem
+import br.com.berzerk.coletor.data.Pastas
+import br.com.berzerk.coletor.data.ResultadoCriar
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.FotoProduto
+import br.com.berzerk.coletor.ui.comum.NovaPastaDialog
 import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.comum.formatarDataHora
 import br.com.berzerk.coletor.ui.comum.formatarInteiro
 import br.com.berzerk.coletor.ui.comum.ordenarTamanhos
+import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Borda
 import br.com.berzerk.coletor.ui.theme.Muted
 import br.com.berzerk.coletor.ui.theme.Texto
@@ -79,11 +79,6 @@ object PreviaSessoes {
     private val mapa = HashMap<String, RfidSessaoDto>()
     fun guardar(s: RfidSessaoDto) { mapa[s.id] = s }
     fun pegar(id: String): RfidSessaoDto? = mapa[id]
-}
-
-/** Sessão de contagem mais recente já vista neste processo (card da Home quando o Nexus não responde). */
-object UltimoInventario {
-    @Volatile var sessao: RfidSessaoDto? = null
 }
 
 /** `abertaEm desc`: a API não garante ordem. */
@@ -110,35 +105,25 @@ class InventarioListaViewModel : ViewModel() {
             _ui.update { it.copy(carregando = true, erro = null) }
             runCatching { Graph.api.listarSessoes("contagem").sessoes }
                 .onSuccess { lista ->
+                    Pastas.guardarCache(lista)
                     val ordenada = ordenarSessoes(lista)
-                    UltimoInventario.sessao = ordenada.firstOrNull()
                     _ui.update { it.copy(sessoes = ordenada, carregando = false) }
                 }
                 .onFailure { e -> _ui.update { it.copy(carregando = false, erro = e.mensagemCurta()) } }
         }
     }
 
-    /** Abre a sessão de contagem. Precisa do id deste aparelho como coletor (`coletorIds` é obrigatório). */
+    /** Abre a pasta (sessão de contagem) no Nexus. */
     fun criar(nome: String, aoCriada: (RfidSessaoDto) -> Unit) {
         if (_ui.value.criando) return
         viewModelScope.launch {
             _ui.update { it.copy(criando = true, erroCriar = null) }
-            val coletorId = try {
-                Graph.upload.garantirColetorId()
-            } catch (e: Throwable) {
-                _ui.update { it.copy(criando = false, erroCriar = "Não consegui registrar este aparelho: ${e.mensagemCurta()}") }
-                return@launch
-            }
-            try {
-                val s = Graph.api.abrirSessao(AbrirSessaoBody("contagem", nome.trim(), listOf(coletorId)))
-                UltimoInventario.sessao = s
-                _ui.update { it.copy(criando = false) }
-                aoCriada(s)
-            } catch (e: ApiException) {
-                val msg = if (e.status == 409) "Já existe um inventário em andamento. Feche-o no Nexus antes de abrir outro." else e.mensagemCurta()
-                _ui.update { it.copy(criando = false, erroCriar = msg) }
-            } catch (e: Throwable) {
-                _ui.update { it.copy(criando = false, erroCriar = e.mensagemCurta()) }
+            when (val r = Pastas.criar(nome)) {
+                is ResultadoCriar.Criada -> {
+                    _ui.update { it.copy(criando = false) }
+                    aoCriada(r.pasta)
+                }
+                else -> _ui.update { it.copy(criando = false, erroCriar = Pastas.mensagem(r)) }
             }
         }
     }
@@ -151,46 +136,36 @@ fun InventarioListaScreen(voltar: () -> Unit, abrir: (RfidSessaoDto) -> Unit) {
     val vm: InventarioListaViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     var novo by remember { mutableStateOf(false) }
-    var nome by remember { mutableStateOf("") }
+    val semPasta by remember { Graph.db.leituras().contarSemPastaTotal() }.collectAsState(0)
 
     Column(Modifier.fillMaxSize()) {
-        Cabecalho("Inventário", "Contar o estoque inteiro e mandar pro Nexus", aoVoltar = voltar, rotulo = "Berzerk Nexus")
+        Cabecalho("Pastas", "A leitura entra na pasta que você escolhe no Salvar", aoVoltar = voltar, rotulo = "Berzerk Nexus")
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (semPasta > 0) item { Text("$semPasta leituras sem pasta: abra uma pasta, toque em LER e depois em SALVAR pra escolher.", color = Ambar, style = MaterialTheme.typography.bodyMedium) }
             if (ui.erro != null) item { Text(ui.erro!!, color = Vermelho) }
             if (ui.carregando && ui.sessoes.isEmpty()) item { Text("Carregando…", color = TextoFraco) }
             val abertas = ui.sessoes.filter { it.aberta }
             val fechadas = ui.sessoes.filter { !it.aberta }
             if (abertas.isNotEmpty()) {
-                item { Rotulo("Em andamento") }
+                item { Rotulo("Abertas") }
                 items(abertas, key = { it.id }) { CartaoSessao(it) { abrir(it) } }
             }
             if (fechadas.isNotEmpty()) {
-                item { Spacer(Modifier.height(6.dp)); Rotulo("Fechados") }
+                item { Spacer(Modifier.height(6.dp)); Rotulo("Fechadas") }
                 items(fechadas, key = { it.id }) { CartaoSessao(it) { abrir(it) } }
             }
-            if (!ui.carregando && ui.erro == null && ui.sessoes.isEmpty()) item { Text("Nenhum inventário ainda.", color = TextoFraco) }
+            if (!ui.carregando && ui.erro == null && ui.sessoes.isEmpty()) item { Text("Nenhuma pasta ainda.", color = TextoFraco) }
         }
         Column(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding()) {
-            BotaoGrande("Novo inventário", onClick = { nome = ""; vm.limparErroCriar(); novo = true }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
+            BotaoGrande("Nova pasta", onClick = { vm.limparErroCriar(); novo = true }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
         }
     }
 
     if (novo) {
-        AlertDialog(
-            onDismissRequest = { if (!ui.criando) novo = false },
-            title = { Text("Novo inventário") },
-            text = {
-                Column {
-                    OutlinedTextField(value = nome, onValueChange = { nome = it.take(120) }, singleLine = true, label = { Text("Nome (ex.: Black Friday)") }, enabled = !ui.criando)
-                    if (ui.erroCriar != null) Text(ui.erroCriar!!, color = Vermelho, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = nome.isNotBlank() && !ui.criando, onClick = { vm.criar(nome) { s -> novo = false; abrir(s) } }) {
-                    Text(if (ui.criando) "Criando…" else "Criar", color = Verde)
-                }
-            },
-            dismissButton = { TextButton(enabled = !ui.criando, onClick = { novo = false }) { Text("Cancelar", color = Texto) } },
+        NovaPastaDialog(
+            criando = ui.criando, erro = ui.erroCriar,
+            aoCriar = { nome -> vm.criar(nome) { s -> novo = false; abrir(s) } },
+            aoCancelar = { novo = false },
         )
     }
 }
@@ -236,7 +211,7 @@ class InventarioSessaoViewModel(private val sessaoId: String) : ViewModel() {
             if (inv == null) recarregar()
         }
         viewModelScope.launch {
-            Graph.upload.concluidos.collect { if (it.origem == Origem.INVENTARIO && it.referencia == sessaoId) recarregar() }
+            Graph.upload.concluidos.collect { if (it.pastaId == sessaoId) recarregar() }
         }
     }
 
@@ -287,9 +262,9 @@ fun InventarioSessaoScreen(sessaoId: String, voltar: () -> Unit, ler: (RfidSessa
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho(
-            titulo = sessao?.nome ?: "Inventário",
+            titulo = sessao?.nome ?: "Pasta",
             subtitulo = sessao?.let { "Criado em ${formatarDataHora(it.abertaEm)}" + if (!it.aberta) " · fechado" else "" },
-            aoVoltar = voltar, rotulo = "Inventário",
+            aoVoltar = voltar, rotulo = "Pastas",
         )
         PullToRefreshBox(isRefreshing = ui.carregando && inv != null, onRefresh = vm::recarregar, modifier = Modifier.weight(1f)) {
             val produtos = inv?.produtos.orEmpty()

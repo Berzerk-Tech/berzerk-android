@@ -147,7 +147,8 @@ object Origem {
 /**
  * EPC lido neste aparelho. PK composta `(origem, referencia, epc)`: a mesma peça lida 50 vezes na
  * mesma sessão é UMA linha. `referencia` nunca é nula (`""` = sem referência): NULL em PK não
- * deduplica no SQLite. `enviadoEm` nulo = ainda não subiu pro Nexus (só um 2xx marca).
+ * deduplica no SQLite. `enviadoEm` nulo = ainda não subiu pro Nexus (só um 2xx marca). `pastaId` nulo =
+ * pasta ainda não escolhida (linha legada ou lida depois do último SALVAR).
  */
 @Entity(tableName = "leituras", primaryKeys = ["origem", "referencia", "epc"])
 data class LeituraEntity(
@@ -156,6 +157,8 @@ data class LeituraEntity(
     val origem: String,
     val referencia: String = "",
     val enviadoEm: Long? = null,
+    /** Pasta (sessão de contagem) escolhida no SALVAR. Nula = ainda não escolhida: a linha não sobe sozinha. */
+    val pastaId: String? = null,
 )
 
 /** Última resposta de `GET revisao-rfid/sessoes/{id}/inventario` (demora 15–25 s numa sessão aberta). */
@@ -169,7 +172,7 @@ data class InventarioCacheEntity(
 )
 
 data class ContagemLeituras(val lidas: Int, val enviadas: Int)
-data class GrupoLeitura(val origem: String, val referencia: String)
+data class GrupoLeitura(val origem: String, val referencia: String, val pastaId: String)
 
 @Dao
 interface LeituraDao {
@@ -186,11 +189,33 @@ interface LeituraDao {
     @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia ORDER BY lidoEm, epc")
     suspend fun epcs(origem: String, referencia: String): List<String>
 
-    @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NULL ORDER BY lidoEm, epc LIMIT :limite")
-    suspend fun pendentes(origem: String, referencia: String, limite: Int): List<String>
+    /** Pendentes DESTA pasta. Linha sem pasta nunca sai daqui: espera o SALVAR. */
+    @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia AND pastaId = :pastaId AND enviadoEm IS NULL ORDER BY lidoEm, epc LIMIT :limite")
+    suspend fun pendentes(origem: String, referencia: String, pastaId: String, limite: Int): List<String>
 
-    @Query("UPDATE leituras SET enviadoEm = :em WHERE origem = :origem AND referencia = :referencia AND epc IN (:epcs)")
-    suspend fun marcarEnviadas(origem: String, referencia: String, epcs: List<String>, em: Long)
+    @Query("UPDATE leituras SET enviadoEm = :em WHERE origem = :origem AND referencia = :referencia AND pastaId = :pastaId AND epc IN (:epcs)")
+    suspend fun marcarEnviadas(origem: String, referencia: String, pastaId: String, epcs: List<String>, em: Long)
+
+    /**
+     * SALVAR: os pendentes SEM pasta (ou cuja pasta já foi marcada fechada, [fechadas]) desta (origem, referencia)
+     * passam a ir pra [pastaId]. Linha de pasta com envio vivo nunca é reatribuída (iria duplicada pra duas pastas).
+     */
+    @Query("UPDATE leituras SET pastaId = :pastaId WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NULL AND (pastaId IS NULL OR pastaId IN (:fechadas))")
+    suspend fun atribuirPasta(origem: String, referencia: String, pastaId: String, fechadas: List<String>)
+
+    /** Pendentes que já têm pasta (o worker só reenvia estes). */
+    @Query("SELECT DISTINCT origem, referencia, pastaId FROM leituras WHERE enviadoEm IS NULL AND pastaId IS NOT NULL")
+    suspend fun gruposPendentes(): List<GrupoLeitura>
+
+    @Query("SELECT COUNT(*) FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NULL AND pastaId IS NULL")
+    fun contarSemPasta(origem: String, referencia: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NULL AND pastaId IS NULL")
+    suspend fun contarSemPastaAgora(origem: String, referencia: String): Int
+
+    /** Leituras que esperam pasta, de qualquer origem (Pastas e Home). */
+    @Query("SELECT COUNT(*) FROM leituras WHERE enviadoEm IS NULL AND pastaId IS NULL")
+    fun contarSemPastaTotal(): Flow<Int>
 
     @Query("DELETE FROM leituras WHERE origem = :origem AND referencia = :referencia")
     suspend fun apagar(origem: String, referencia: String)
@@ -206,17 +231,18 @@ interface LeituraDao {
     @Query("SELECT COUNT(*) FROM leituras WHERE enviadoEm IS NULL")
     suspend fun contarNaoEnviadas(): Int
 
-    @Query("SELECT DISTINCT origem, referencia FROM leituras WHERE enviadoEm IS NULL")
-    suspend fun gruposPendentes(): List<GrupoLeitura>
-
     @Query("SELECT * FROM inventario_cache WHERE sessaoId = :sessaoId")
     suspend fun cacheInventario(sessaoId: String): InventarioCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun gravarCacheInventario(linha: InventarioCacheEntity)
+
+    /** Entrou leitura nova na pasta: o inventário em cache ficou velho. */
+    @Query("DELETE FROM inventario_cache WHERE sessaoId = :sessaoId")
+    suspend fun apagarCacheInventario(sessaoId: String)
 }
 
-@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class, LeituraEntity::class, InventarioCacheEntity::class], version = 4, exportSchema = false)
+@Database(entities = [EpcEntity::class, ImagemEntity::class, SyncEstado::class, ModeloEntity::class, LeituraEntity::class, InventarioCacheEntity::class], version = 5, exportSchema = false)
 abstract class ColetorDb : RoomDatabase() {
     abstract fun epcs(): EpcDao
     abstract fun leituras(): LeituraDao
@@ -255,10 +281,24 @@ abstract class ColetorDb : RoomDatabase() {
             }
         }
 
+        /**
+         * 4 → 5: `leituras.pastaId` (nula = pasta ainda não escolhida); NÃO mexe em `epcs` (2,8 M linhas).
+         * Inventário legado já tem destino (a referência é a sessão); Revisão e Livre esperam o SALVAR.
+         */
+        val SQL_4_5 = listOf(
+            "ALTER TABLE leituras ADD COLUMN pastaId TEXT",
+            "UPDATE leituras SET pastaId = referencia WHERE origem = 'inventario' AND referencia <> '' AND enviadoEm IS NULL",
+        )
+
+        val MIGRACAO_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                SQL_4_5.forEach { db.execSQL(it) }
+            }
+        }
+
         fun abrir(context: Context): ColetorDb =
             Room.databaseBuilder(context.applicationContext, ColetorDb::class.java, "coletor.db")
-                .addMigrations(MIGRACAO_1_2, MIGRACAO_2_3, MIGRACAO_3_4)
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRACAO_1_2, MIGRACAO_2_3, MIGRACAO_3_4, MIGRACAO_4_5)
                 .build()
     }
 }
