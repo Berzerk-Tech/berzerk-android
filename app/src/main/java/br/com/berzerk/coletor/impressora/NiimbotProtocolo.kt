@@ -72,11 +72,31 @@ class NiimbotProtocolo(private val ble: NiimbotBle) {
         }
     }
 
-    /** Envia em sequência; [progresso] recebe (atual, total) antes de cada pacote. */
-    suspend fun enviarTodos(ps: List<NiimbotPacote>, timeoutMs: Long = 1000, progresso: ((Int, Int) -> Unit)? = null) {
-        for ((i, p) in ps.withIndex()) {
+    /**
+     * Envia em sequência; [progresso] recebe (atual, total) antes de cada pacote. Com [agrupar], pacotes de
+     * uma via consecutivos (linhas da etiqueta) vão juntos numa escrita BLE até o MTU: a impressora lê um
+     * fluxo de bytes, não uma escrita por pacote, e isso corta o número de idas ao rádio em ~3×.
+     */
+    suspend fun enviarTodos(ps: List<NiimbotPacote>, timeoutMs: Long = 1000, progresso: ((Int, Int) -> Unit)? = null, agrupar: Boolean = false) {
+        var i = 0
+        while (i < ps.size) {
             progresso?.invoke(i + 1, ps.size)
-            enviar(p, timeoutMs)
+            val p = ps[i]
+            if (!agrupar || !p.umaVia) {
+                enviar(p, timeoutMs)
+                i++
+                continue
+            }
+            val teto = ble.bytesPorEscrita
+            var lote = p.bytes()
+            i++
+            while (i < ps.size && ps[i].umaVia) {
+                val proximo = ps[i].bytes()
+                if (lote.size + proximo.size > teto) break
+                lote += proximo
+                i++
+            }
+            mutex.withLock { ble.escrever(lote) }
         }
     }
 

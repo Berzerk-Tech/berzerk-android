@@ -76,10 +76,20 @@ class Prefs(context: Context) {
         get() = prefs.getString(K_IMP_MODO, "AUTO") ?: "AUTO"
         set(v) = prefs.edit().putString(K_IMP_MODO, v).apply()
 
-    /** Cópias por toque num tamanho (1..20). */
+    /** Cópias por tamanho selecionado (1..20). */
     var impressaoQtdPorToque: Int
         get() = prefs.getInt(K_IMP_QTD, 1)
         set(v) = prefs.edit().putInt(K_IMP_QTD, v).apply()
+
+    /** Nome e EAN em cima do tamanho (true) ou embaixo (false, padrão). */
+    var etiquetaTextoEmCima: Boolean
+        get() = prefs.getBoolean(K_ETQ_TEXTO_EM_CIMA, false)
+        set(v) = prefs.edit().putBoolean(K_ETQ_TEXTO_EM_CIMA, v).apply()
+
+    /** Envio rápido: várias linhas da etiqueta por escrita BLE (até o MTU). Desligue se a B31 sair com linhas faltando. */
+    var impressoraAgruparLinhas: Boolean
+        get() = prefs.getBoolean(K_IMP_AGRUPAR, true)
+        set(v) = prefs.edit().putBoolean(K_IMP_AGRUPAR, v).apply()
 
     private val _potencia = MutableStateFlow(prefs.getInt(K_POTENCIA, POTENCIA_PADRAO))
     val potencia: StateFlow<Int> = _potencia
@@ -154,6 +164,8 @@ class Prefs(context: Context) {
         private const val K_IMP_PAPEL = "impressora_papel"
         private const val K_IMP_DENSIDADE = "impressora_densidade"
         private const val K_IMP_MODO = "impressora_modo"
+        private const val K_ETQ_TEXTO_EM_CIMA = "etiqueta_texto_em_cima"
+        private const val K_IMP_AGRUPAR = "impressora_agrupar_linhas"
         private const val K_IMP_QTD = "impressao_qtd_por_toque"
         private const val K_POTENCIA = "potencia_dbm"
         private const val K_BEEP = "beep"

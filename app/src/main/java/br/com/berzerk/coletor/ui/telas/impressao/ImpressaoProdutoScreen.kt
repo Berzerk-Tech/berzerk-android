@@ -10,6 +10,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.saveable.rememberSaveable
+import br.com.berzerk.coletor.impressora.Impressora
+import br.com.berzerk.coletor.ui.comum.BotaoGrande
+import br.com.berzerk.coletor.ui.theme.Fundo
+import br.com.berzerk.coletor.ui.theme.Verde
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,21 +110,23 @@ fun ImpressaoProdutoScreen(chave: String, voltar: () -> Unit, irAjustes: () -> U
     val console by Graph.impressora.console.collectAsState()
     val prefs = Graph.prefs
     var qtd by remember { mutableIntStateOf(prefs.impressaoQtdPorToque.coerceIn(1, 20)) }
-    var selecionado by remember(chave) { mutableStateOf<String?>(null) }
+    var selecionados by rememberSaveable(chave) { mutableStateOf(setOf<String>()) }
+    val fila by Graph.impressora.fila.collectAsState()
+    val textoEmCima = prefs.etiquetaTextoEmCima
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho("Imprimir", aoVoltar = voltar, acao = { IndicadorImpressora(irAjustes) })
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            PedirPermissaoBluetooth(aoConceder = { Graph.impressora.reconectarSeNecessario() })
+        PedirPermissaoBluetooth(aoConceder = { Graph.impressora.reconectarSeNecessario() })
+        val m = produto
+        if (m == null) {
+            Text("Carregando produto…", color = TextoFraco, modifier = Modifier.padding(16.dp))
+            return@Column
+        }
+        val tamanhos = ordenarTamanhos(m.eanPorTamanho.keys.filter { it.isNotEmpty() })
+        val eanDe = { t: String -> m.eanPorTamanho[t]?.firstOrNull().orEmpty() }
+        val marcados = tamanhos.filter { it in selecionados }
 
-            if (produto == null) {
-                Text("Carregando produto…", color = TextoFraco)
-                return@Column
-            }
-            val m = produto
-            val tamanhos = ordenarTamanhos(m.eanPorTamanho.keys.filter { it.isNotEmpty() })
-            val eanDe = { t: String -> m.eanPorTamanho[t]?.firstOrNull().orEmpty() }
-
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FotoProduto(m.imagemUrl, 80.dp)
                 Spacer(Modifier.width(12.dp))
@@ -126,33 +136,30 @@ fun ImpressaoProdutoScreen(chave: String, voltar: () -> Unit, irAjustes: () -> U
                 }
             }
 
-            Rotulo("Toque no tamanho para imprimir")
+            Rotulo("Toque nos tamanhos e imprima")
             if (tamanhos.isEmpty()) Text("Este produto não tem EAN cadastrado nos tamanhos.", color = TextoFraco)
             tamanhos.chunked(3).forEach { linha ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     linha.forEach { t ->
-                        TileImpressao(t, eanDe(t), t == selecionado, Modifier.weight(1f)) {
-                            selecionado = t
+                        TileImpressao(t, eanDe(t), t in selecionados, qtd, Modifier.weight(1f)) {
+                            selecionados = if (t in selecionados) selecionados - t else selecionados + t
                             vibrarCurto(contexto)
-                            val copias = qtd
-                            val (l, a) = dimensoesPx(prefs.etiquetaLarguraMm, prefs.etiquetaAlturaMm)
-                            Graph.impressora.enfileirar(
-                                TrabalhoImpressao(rotulo = t, tamanho = t, ean = eanDe(t), nome = m.modelo, larguraPx = l, alturaPx = a, copias = copias),
-                            )
                         }
                     }
                     repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
 
-            Rotulo("Quantidade por toque")
+            Rotulo("Cópias por tamanho")
             Stepper(qtd) { qtd = it; prefs.impressaoQtdPorToque = it }
 
-            val alvo = selecionado ?: tamanhos.firstOrNull()
+            FilaImpressao(fila)
+
+            val alvo = marcados.firstOrNull() ?: tamanhos.firstOrNull()
             if (alvo != null) {
                 Rotulo("Prévia da etiqueta")
                 val (l, a) = dimensoesPx(prefs.etiquetaLarguraMm, prefs.etiquetaAlturaMm)
-                PreviaEtiqueta(alvo, l, a) { EtiquetaRender.renderizar(alvo, eanDe(alvo), m.modelo, l, a) }
+                PreviaEtiqueta(alvo, l, a, textoEmCima) { EtiquetaRender.renderizar(alvo, eanDe(alvo), m.modelo, l, a, textoEmCima) }
             }
 
             (estado as? EstadoImpressora.Erro)?.let { e ->
@@ -165,23 +172,83 @@ fun ImpressaoProdutoScreen(chave: String, voltar: () -> Unit, irAjustes: () -> U
             }
             ConsoleImpressao(console.takeLast(4))
         }
+
+        val total = marcados.size * qtd
+        Column(Modifier.fillMaxWidth().background(Fundo).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (tamanhos.isNotEmpty()) {
+                val todos = marcados.size == tamanhos.size
+                BotaoGrande(if (todos) "Nenhum" else "Todos", contorno = true, onClick = {
+                    selecionados = if (todos) emptySet() else tamanhos.toSet()
+                })
+            }
+            BotaoGrande(
+                if (total == 0) "IMPRIMIR" else "IMPRIMIR ($total etiqueta${if (total > 1) "s" else ""})",
+                habilitado = marcados.isNotEmpty(),
+                onClick = {
+                    val (l, a) = dimensoesPx(prefs.etiquetaLarguraMm, prefs.etiquetaAlturaMm)
+                    marcados.forEach { t ->
+                        Graph.impressora.enfileirar(
+                            TrabalhoImpressao(rotulo = t, tamanho = t, ean = eanDe(t), nome = m.modelo, larguraPx = l, alturaPx = a, copias = qtd),
+                        )
+                    }
+                    vibrarCurto(contexto)
+                    selecionados = emptySet()
+                },
+            )
+        }
+    }
+}
+
+/** Fila de impressão: o que está imprimindo em verde, o que espera em cinza; "Limpar fila" tira só os que esperam. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilaImpressao(fila: List<Impressora.ItemFila>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Rotulo("Fila")
+            if (fila.any { !it.imprimindo }) {
+                TextButton(onClick = { Graph.impressora.limparFila() }) { Text("Limpar fila", color = Texto) }
+            }
+        }
+        if (fila.isEmpty()) {
+            Text("Nada na fila", color = TextoFraco, style = MaterialTheme.typography.bodyMedium)
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                fila.forEach { i ->
+                    val forma = RoundedCornerShape(14.dp)
+                    Box(
+                        Modifier.clip(forma).background(if (i.imprimindo) Verde else Muted, forma).padding(horizontal = 10.dp, vertical = 5.dp),
+                    ) {
+                        Text(
+                            (if (i.imprimindo) "● " else "") + "${i.rotulo} ×${i.copias}",
+                            style = MaterialTheme.typography.labelLarge, color = if (i.imprimindo) Fundo else Texto, maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun TileImpressao(tamanho: String, ean: String, selecionado: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun TileImpressao(tamanho: String, ean: String, selecionado: Boolean, copias: Int, modifier: Modifier, onClick: () -> Unit) {
     val forma = RoundedCornerShape(10.dp)
-    Column(
-        modifier.height(100.dp).clip(forma).background(Muted, forma)
-            .border(if (selecionado) 2.dp else 1.dp, if (selecionado) Texto else Borda, forma)
+    val corTexto = if (selecionado) Fundo else Texto
+    Box(
+        modifier.height(100.dp).clip(forma).background(if (selecionado) Texto else Muted, forma)
+            .border(1.dp, if (selecionado) Texto else Borda, forma)
             .clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Text(tamanho, style = MaterialTheme.typography.displaySmall, color = Texto, maxLines = 1)
-        Text(
-            ean, style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, letterSpacing = 0.sp), color = TextoFraco,
-            maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, textAlign = TextAlign.Center,
-        )
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(tamanho, style = MaterialTheme.typography.displaySmall, color = corTexto, maxLines = 1)
+            Text(
+                ean, style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, letterSpacing = 0.sp), color = if (selecionado) Fundo else TextoFraco,
+                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, textAlign = TextAlign.Center,
+            )
+        }
+        if (selecionado) {
+            Text("×$copias", style = MaterialTheme.typography.labelLarge, color = corTexto, modifier = Modifier.align(Alignment.TopEnd))
+        }
     }
 }
 
@@ -205,8 +272,8 @@ private fun BotaoPasso(texto: String, habilitado: Boolean, onClick: () -> Unit) 
 
 /** Prévia em fundo branco com o bitmap exato que vai pra impressora (até 240 dp de largura). */
 @Composable
-internal fun PreviaEtiqueta(tamanho: String, larguraPx: Int, alturaPx: Int, gerar: () -> android.graphics.Bitmap) {
-    val bmp by produceState<ImageBitmap?>(null, tamanho, larguraPx, alturaPx) {
+internal fun PreviaEtiqueta(tamanho: String, larguraPx: Int, alturaPx: Int, textoEmCima: Boolean, gerar: () -> android.graphics.Bitmap) {
+    val bmp by produceState<ImageBitmap?>(null, tamanho, larguraPx, alturaPx, textoEmCima) {
         value = withContext(Dispatchers.Default) { gerar().asImageBitmap() }
     }
     Box(
@@ -226,7 +293,7 @@ internal fun PreviaEtiqueta(tamanho: String, larguraPx: Int, alturaPx: Int, gera
 @Composable
 internal fun ConsoleImpressao(linhas: List<String>) {
     val forma = RoundedCornerShape(8.dp)
-    Column(Modifier.fillMaxWidth().clip(forma).background(br.com.berzerk.coletor.ui.theme.Fundo).border(1.dp, Borda, forma).padding(8.dp).heightIn(min = 72.dp)) {
+    Column(Modifier.fillMaxWidth().clip(forma).background(Fundo).border(1.dp, Borda, forma).padding(8.dp).heightIn(min = 72.dp)) {
         if (linhas.isEmpty()) Text("Nada impresso ainda.", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
         linhas.forEach {
             Text("▸ $it", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = if (it.startsWith("Erro")) Vermelho else TextoFraco, maxLines = 2, overflow = TextOverflow.Ellipsis)

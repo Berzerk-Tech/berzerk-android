@@ -38,20 +38,38 @@ object EtiquetaRender {
         ResourcesCompat.getFont(Graph.appContext, R.font.geist_bold) ?: Typeface.DEFAULT_BOLD
     }
 
-    fun renderizar(tamanho: String, ean: String, nome: String, larguraPx: Int = 600, alturaPx: Int = 800): Bitmap {
+    /**
+     * [textoEmCima] = nome e EAN acima do tamanho (o bloco de texto ocupa 230 px numa ponta, o tamanho o
+     * resto). As zonas são as da etiqueta 600×800, ancoradas nas pontas; abaixo de 50 mm de altura colapsam.
+     */
+    fun renderizar(tamanho: String, ean: String, nome: String, larguraPx: Int = 600, alturaPx: Int = 800, textoEmCima: Boolean = false): Bitmap {
         val bmp = Bitmap.createBitmap(larguraPx, alturaPx, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(Color.WHITE)
         val cx = larguraPx / 2f
-        // As zonas são as da etiqueta 600x800 contadas a partir de cima (tamanho) e de baixo (EAN, nome).
-        val zonaTamanhoTopo = 40f
-        val zonaTamanhoBase = alturaPx - 240f
-        val baselineEan = alturaPx - 185f
-        val zonaNomeTopo = alturaPx - 160f
-        val zonaNomeBase = alturaPx - 10f
+        val zonaTamanhoTopo: Float
+        val zonaTamanhoBase: Float
+        val baselineEan: Float
+        val zonaNomeTopo: Float
+        val zonaNomeBase: Float
+        if (textoEmCima) {
+            zonaNomeTopo = 10f
+            zonaNomeBase = 160f
+            baselineEan = 205f
+            zonaTamanhoTopo = 240f
+            zonaTamanhoBase = alturaPx - 40f
+        } else {
+            zonaTamanhoTopo = 40f
+            zonaTamanhoBase = alturaPx - 240f
+            baselineEan = alturaPx - 185f
+            zonaNomeTopo = alturaPx - 160f
+            zonaNomeBase = alturaPx - 10f
+        }
 
-        fun tinta(px: Float) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonte; color = Color.BLACK; textSize = px; textAlign = Paint.Align.CENTER
+        // `alinhar` = CENTER só pra drawText; o StaticLayout já centraliza as linhas sozinho e, com o pincel
+        // também centralizado, deslocava cada linha meia largura pra esquerda (nome saía cortado).
+        fun tinta(px: Float, alinhar: Paint.Align = Paint.Align.CENTER) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = fonte; color = Color.BLACK; textSize = px; textAlign = alinhar
         }
 
         // Tamanho: 560 px de fonte, encolhe até caber na largura útil; glifo centrado na faixa.
@@ -70,11 +88,11 @@ object EtiquetaRender {
         var layout: StaticLayout? = null
         var px = 56f
         while (px >= 40f) {
-            layout = montarNome(nome, tinta(px), larguraNome)
+            layout = montarNome(nome, tinta(px, Paint.Align.LEFT), larguraNome)
             if (layout.getEllipsisCount(layout.lineCount - 1) == 0) break
             px -= 2f
         }
-        val l = layout ?: montarNome(nome, tinta(40f), larguraNome)
+        val l = layout ?: montarNome(nome, tinta(40f, Paint.Align.LEFT), larguraNome)
         c.save()
         c.translate(20f, zonaNomeTopo + ((zonaNomeBase - zonaNomeTopo) - l.height) / 2f)
         l.draw(c)
@@ -106,8 +124,8 @@ object EtiquetaRender {
     }
 
     /** Etiqueta de teste do ajuste: "M", EAN fictício e o tamanho do rolo no nome. */
-    fun etiquetaDeTeste(larguraMm: Int, alturaMm: Int): Bitmap {
+    fun etiquetaDeTeste(larguraMm: Int, alturaMm: Int, textoEmCima: Boolean = false): Bitmap {
         val (l, a) = dimensoesPx(larguraMm, alturaMm)
-        return renderizar("M", "7890000000000", "Etiqueta de teste $larguraMm×$alturaMm mm", l, a)
+        return renderizar("M", "7890000000000", "Etiqueta de teste $larguraMm×$alturaMm mm", l, a, textoEmCima)
     }
 }
