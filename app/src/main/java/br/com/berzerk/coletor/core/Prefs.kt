@@ -33,6 +33,16 @@ class Prefs(context: Context) {
         get() = prefs.getString(K_COLETOR_ID, null)?.takeIf { it.isNotBlank() }
         set(v) = prefs.edit().putString(K_COLETOR_ID, v).apply()
 
+    /** Última lista de pastas (sessões de contagem) vinda do Nexus: o seletor do SALVAR sem rede. Não é segredo. */
+    var pastasJson: String?
+        get() = prefs.getString(K_PASTAS, null)
+        set(v) = prefs.edit().putString(K_PASTAS, v).apply()
+
+    /** Pastas que o Nexus recusou por fechadas (409): as linhas delas podem ser reatribuídas no SALVAR. */
+    var pastasFechadas: Set<String>
+        get() = prefs.getStringSet(K_PASTAS_FECHADAS, emptySet())?.toSet().orEmpty()
+        set(v) = prefs.edit().putStringSet(K_PASTAS_FECHADAS, v).apply()
+
     private val _potencia = MutableStateFlow(prefs.getInt(K_POTENCIA, POTENCIA_PADRAO))
     val potencia: StateFlow<Int> = _potencia
     fun setPotencia(dbm: Int) {
@@ -97,6 +107,8 @@ class Prefs(context: Context) {
         private const val K_OP_ATIVIDADE = "operador_ultima_atividade"
         private const val K_AUTH_STATE = "auth_state"
         private const val K_COLETOR_ID = "coletor_id"
+        private const val K_PASTAS = "pastas_json"
+        private const val K_PASTAS_FECHADAS = "pastas_fechadas"
         private const val K_POTENCIA = "potencia_dbm"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26

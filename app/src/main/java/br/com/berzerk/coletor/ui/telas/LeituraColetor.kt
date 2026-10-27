@@ -2,7 +2,6 @@ package br.com.berzerk.coletor.ui.telas
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +44,8 @@ import br.com.berzerk.coletor.data.BufferLeituras
 import br.com.berzerk.coletor.data.LeituraEntity
 import br.com.berzerk.coletor.data.ModeloResumo
 import br.com.berzerk.coletor.data.Origem
+import br.com.berzerk.coletor.data.Pastas
+import br.com.berzerk.coletor.data.ResultadoCriar
 import br.com.berzerk.coletor.data.chaveModelo
 import br.com.berzerk.coletor.data.montarResumos
 import br.com.berzerk.coletor.data.parseNomeItag
@@ -56,6 +57,9 @@ import br.com.berzerk.coletor.ui.comum.Contador
 import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.ui.comum.IndicadorEnvio
 import br.com.berzerk.coletor.ui.comum.LinhaConsole
+import br.com.berzerk.coletor.ui.comum.NovaPastaDialog
+import br.com.berzerk.coletor.ui.comum.PastasUi
+import br.com.berzerk.coletor.ui.comum.SeletorPasta
 import br.com.berzerk.coletor.ui.comum.RodapeLeitura
 import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.comum.TileTamanho
@@ -67,6 +71,7 @@ import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
 import br.com.berzerk.coletor.upload.EstadoEnvio
+import br.com.berzerk.coletor.upload.PastaAlvo
 import br.com.berzerk.coletor.upload.ResultadoEnvio
 import br.com.berzerk.coletor.upload.chaveEnvio
 import kotlinx.coroutines.NonCancellable
@@ -120,6 +125,8 @@ data class LeituraColetorUi(
     val enviadas: Int = 0,
     val estadoEnvio: EstadoEnvio = EstadoEnvio.Ocioso,
     val baseVazia: Boolean = false,
+    /** Pendentes sem pasta escolhida (o SALVAR atribui). */
+    val semPasta: Int = 0,
     /** Lidas que ainda não chegaram no Room: no buffer ou sendo gravadas. */
     val naoGravadas: Int = 0,
 ) {
@@ -149,8 +156,15 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
     private val _sair = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val sair: SharedFlow<Unit> = _sair
 
-    private val _abertas = MutableStateFlow<List<RfidSessaoDto>?>(null)
-    val abertas: StateFlow<List<RfidSessaoDto>?> = _abertas
+    private val _pastas = MutableStateFlow(PastasUi())
+    val pastas: StateFlow<PastasUi> = _pastas
+
+    /** A pasta fechou no meio do envio (nome): a tela avisa e reabre o seletor. */
+    private val _pastaFechada = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val pastaFechada: SharedFlow<String> = _pastaFechada
+
+    /** Pasta da rota (alvo Inventário) vem pré-selecionada. */
+    private val preId: String? = (alvo as? AlvoLeitura.Inventario)?.sessaoId
 
     private val buffer = BufferLeituras()
     private val classificados = HashSet<String>()
@@ -173,6 +187,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
             }
         }
         viewModelScope.launch { dao.contagem(alvo.origem, alvo.referencia).collect { c -> _ui.update { it.copy(lidas = c.lidas, enviadas = c.enviadas) } } }
+        viewModelScope.launch { dao.contarSemPasta(alvo.origem, alvo.referencia).collect { n -> _ui.update { it.copy(semPasta = n) } } }
         viewModelScope.launch {
             upload.estados.collect { m -> _ui.update { it.copy(estadoEnvio = m[chaveEnvio(alvo.origem, alvo.referencia)] ?: EstadoEnvio.Ocioso) } }
         }
@@ -300,21 +315,76 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         }
     }
 
-    /** SALVAR: grava o que está no buffer e dispara a fila (com retry). [sairAoConcluir]: fecha a tela quando tudo subir. */
-    fun salvar(sairAoConcluir: Boolean = false) {
-        envioJob?.cancel()
-        envioJob = viewModelScope.launch {
-            processar()
-            val r = upload.enviarComRetry(alvo.origem, alvo.referencia)
-            if (sairAoConcluir && r is ResultadoEnvio.Ok) _sair.tryEmit(Unit)
+    /** Abre o seletor: lista as pastas abertas (rede) e, sem rede, as do cache. Sem nenhuma, erro e nada é enviado. */
+    fun carregarPastas() {
+        _pastas.update { it.copy(carregando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { Graph.api.listarSessoes("contagem").sessoes }
+                .onSuccess { todas ->
+                    Pastas.guardarCache(todas)
+                    publicarPastas(todas, doCache = false)
+                }
+                .onFailure {
+                    val cache = Pastas.doCache()
+                    if (cache.isEmpty()) _pastas.update { u -> u.copy(carregando = false, lista = emptyList(), erro = Pastas.MENSAGEM_SEM_REDE) }
+                    else publicarPastas(cache, doCache = true)
+                }
         }
     }
 
-    /** Sessões abertas pro seletor do topo (inventário). */
-    fun carregarAbertas() {
-        if (_abertas.value != null) return
+    private fun publicarPastas(todas: List<RfidSessaoDto>, doCache: Boolean) {
+        val lista = Pastas.paraSalvar(todas, preId)
+        _pastas.update { it.copy(lista = lista, carregando = false, erro = null, doCache = doCache, escolhida = Pastas.escolhaInicial(lista, preId, it.escolhida)) }
+    }
+
+    fun escolherPasta(id: String) { _pastas.update { it.copy(escolhida = id) } }
+
+    fun limparErroCriar() { _pastas.update { it.copy(erroCriar = null) } }
+
+    /** "Nova pasta…": abre no Nexus, entra na lista e já fica escolhida. [aoCriada] fecha o diálogo. */
+    fun criarPasta(nome: String, aoCriada: () -> Unit) {
+        if (_pastas.value.criando) return
+        _pastas.update { it.copy(criando = true, erroCriar = null) }
         viewModelScope.launch {
-            _abertas.value = runCatching { Graph.api.listarSessoes("contagem").sessoes.filter { it.aberta } }.getOrDefault(emptyList())
+            when (val r = Pastas.criar(nome)) {
+                is ResultadoCriar.Criada -> {
+                    val lista = Pastas.paraSalvar(_pastas.value.lista + r.pasta, preId)
+                    Pastas.guardarCache(lista)
+                    _pastas.update { it.copy(criando = false, lista = lista, escolhida = r.pasta.id, erro = null) }
+                    aoCriada()
+                }
+                is ResultadoCriar.JaHaUma -> {
+                    // Nexus velho: a que já existe é a pasta; seleciona-a (relistando se não está na lista).
+                    val existente = r.sessaoId
+                    val conhecida = existente != null && _pastas.value.lista.any { it.id == existente }
+                    if (existente != null && !conhecida) {
+                        runCatching { Graph.api.listarSessoes("contagem").sessoes }.onSuccess { publicarPastas(it, doCache = false) }
+                    }
+                    _pastas.update { it.copy(criando = false, erroCriar = Pastas.MENSAGEM_UMA_POR_VEZ, escolhida = existente?.takeIf { id -> it.lista.any { p -> p.id == id } } ?: it.escolhida) }
+                }
+                else -> _pastas.update { it.copy(criando = false, erroCriar = Pastas.mensagem(r)) }
+            }
+        }
+    }
+
+    /** SALVAR em [pasta]: grava o que está no buffer e dispara a fila (com retry). [sairAoConcluir]: fecha a tela quando tudo subir. */
+    fun salvar(pasta: RfidSessaoDto, sairAoConcluir: Boolean = false) {
+        // Envio vivo (inclusive em retry de rede): não cancela nem reatribui, senão o mesmo EPC iria pra duas pastas.
+        if (envioJob?.isActive == true) return
+        envioJob = viewModelScope.launch {
+            processar()
+            var r = upload.enviarComRetry(alvo.origem, alvo.referencia, PastaAlvo(pasta.id, pasta.nome))
+            // Lido durante o envio fica sem pasta: antes de sair, manda pra mesma pasta.
+            while (sairAoConcluir && r is ResultadoEnvio.Ok) {
+                processar()
+                if (dao.contarSemPastaAgora(alvo.origem, alvo.referencia) == 0) break
+                r = upload.enviarComRetry(alvo.origem, alvo.referencia, PastaAlvo(pasta.id, pasta.nome))
+            }
+            if (sairAoConcluir && r is ResultadoEnvio.Ok) _sair.tryEmit(Unit)
+            if (r is ResultadoEnvio.PastaFechada) {
+                _pastas.update { u -> u.copy(lista = u.lista.filter { it.id != pasta.id }, escolhida = null) }
+                _pastaFechada.tryEmit(pasta.nome)
+            }
         }
     }
 
@@ -348,11 +418,12 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
 }
 
 /**
- * Tela de leitura única (inventário, revisão por modelo e leitura livre). [trocarSessao] só no inventário.
- * Sair com leitura não enviada pergunta: Salvar agora / Sair mesmo assim / Ficar.
+ * Tela de leitura única (inventário, revisão por modelo e leitura livre). SALVAR abre "Salvar em…" (a pasta
+ * é escolhida ali; a da rota, no inventário, vem pré-selecionada). Sair com leitura não enviada pergunta:
+ * Salvar agora / Sair mesmo assim / Ficar.
  */
 @Composable
-fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((RfidSessaoDto) -> Unit)? = null) {
+fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     val vm: LeituraColetorViewModel = viewModel(
         key = "leitura:${alvo.origem}:${alvo.referencia}",
         factory = viewModelFactory { initializer { LeituraColetorViewModel(alvo) } },
@@ -364,8 +435,15 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((
     var confirmaSaida by remember { mutableStateOf(false) }
     var confirmaZerar by remember { mutableStateOf(false) }
     var seletor by remember { mutableStateOf(false) }
+    var novaPasta by remember { mutableStateOf(false) }
+    var sairDepoisDeSalvar by remember { mutableStateOf(false) }
+    var pastaFechada by remember { mutableStateOf<String?>(null) }
+    val pastas by vm.pastas.collectAsState()
+    val envioVivo = ui.estadoEnvio is EstadoEnvio.Enviando || ui.estadoEnvio is EstadoEnvio.SemRede
+    val abrirSeletor = { vm.carregarPastas(); seletor = true }
 
     LaunchedEffect(vm) { vm.sair.collect { voltar() } }
+    LaunchedEffect(vm) { vm.pastaFechada.collect { pastaFechada = it } }
     val tentarSair = { if (ui.aSalvar > 0) confirmaSaida = true else vm.sair(voltar) }
     BackHandler(onBack = tentarSair)
 
@@ -385,9 +463,9 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((
                             if (resumo != null) Text(resumo.prefixos.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    is AlvoLeitura.Inventario -> Column(Modifier.weight(1f).let { if (trocarSessao != null) it.clickable { vm.carregarAbertas(); seletor = true } else it }) {
-                        Rotulo("Inventário")
-                        Text(alvo.nome + if (trocarSessao != null) "  ▾" else "", style = MaterialTheme.typography.headlineMedium, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    is AlvoLeitura.Inventario -> Column(Modifier.weight(1f)) {
+                        Rotulo("Pasta sugerida")
+                        Text(alvo.nome, style = MaterialTheme.typography.headlineMedium, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     AlvoLeitura.Livre -> Column(Modifier.weight(1f)) {
                         Rotulo("Berzerk Nexus")
@@ -440,10 +518,10 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((
             habilitado = rfid is RfidEstado.Pronto || rfid is RfidEstado.Lendo,
             aoZerar = { if (ui.aSalvar > 0) confirmaZerar = true else vm.zerar() },
             aoLer = { RfidReader.gatilho(!lendo) },
-            aoSalvar = { vm.salvar() },
-            salvarHabilitado = ui.aSalvar > 0 && ui.estadoEnvio !is EstadoEnvio.Enviando,
+            aoSalvar = { sairDepoisDeSalvar = false; abrirSeletor() },
+            salvarHabilitado = ui.aSalvar > 0 && !envioVivo,
             salvando = ui.estadoEnvio is EstadoEnvio.Enviando,
-            indicador = { IndicadorEnvio(ui.lidas + ui.naoGravadas, ui.enviadas, ui.aSalvar, ui.estadoEnvio) },
+            indicador = { IndicadorEnvio(ui.lidas + ui.naoGravadas, ui.enviadas, ui.aSalvar, ui.estadoEnvio, ui.semPasta) },
         )
     }
 
@@ -451,8 +529,8 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((
         AlertDialog(
             onDismissRequest = { confirmaSaida = false },
             title = { Text("Você tem ${ui.aSalvar} peças lidas e não salvas") },
-            text = { Text("Salve agora pra mandar pro Nexus. Se sair sem salvar, elas ficam neste aparelho e o app tenta enviar de novo quando houver rede.") },
-            confirmButton = { TextButton(onClick = { confirmaSaida = false; vm.salvar(sairAoConcluir = true) }) { Text("Salvar agora", color = Verde) } },
+            text = { Text("Salve agora pra mandar pro Nexus. Se sair sem salvar, elas ficam neste aparelho até você voltar aqui e salvar numa pasta.") },
+            confirmButton = { TextButton(enabled = !envioVivo, onClick = { confirmaSaida = false; sairDepoisDeSalvar = true; abrirSeletor() }) { Text("Salvar agora", color = Verde) } },
             dismissButton = {
                 Row {
                     TextButton(onClick = { confirmaSaida = false }) { Text("Ficar", color = Texto) }
@@ -470,26 +548,34 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, trocarSessao: ((
             dismissButton = { TextButton(onClick = { confirmaZerar = false }) { Text("Cancelar", color = Texto) } },
         )
     }
-    if (seletor && trocarSessao != null) {
-        val abertas by vm.abertas.collectAsState()
-        AlertDialog(
-            onDismissRequest = { seletor = false },
-            title = { Text("Inventários em andamento") },
-            text = {
-                val lista = abertas
-                Column {
-                    when {
-                        lista == null -> Text("Carregando…", color = TextoFraco)
-                        lista.isEmpty() -> Text("Nenhum inventário aberto.", color = TextoFraco)
-                        else -> lista.forEach { s ->
-                            TextButton(onClick = { seletor = false; trocarSessao(s) }, modifier = Modifier.fillMaxWidth()) {
-                                Text(s.nome, color = if (s.id == alvo.referencia) Verde else Texto, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
+    if (seletor) {
+        SeletorPasta(
+            ui = pastas,
+            aoEscolher = vm::escolherPasta,
+            aoNovaPasta = { vm.limparErroCriar(); novaPasta = true },
+            aoRecarregar = vm::carregarPastas,
+            aoSalvar = {
+                pastas.lista.firstOrNull { it.id == pastas.escolhida }?.let { p ->
+                    seletor = false
+                    vm.salvar(p, sairAoConcluir = sairDepoisDeSalvar)
                 }
             },
-            confirmButton = { TextButton(onClick = { seletor = false }) { Text("Fechar", color = Texto) } },
+            aoFechar = { seletor = false },
+        )
+    }
+    if (novaPasta) {
+        NovaPastaDialog(
+            criando = pastas.criando, erro = pastas.erroCriar,
+            aoCriar = { nome -> vm.criarPasta(nome) { novaPasta = false } },
+            aoCancelar = { novaPasta = false },
+        )
+    }
+    pastaFechada?.let { nome ->
+        AlertDialog(
+            onDismissRequest = { pastaFechada = null },
+            title = { Text("Pasta fechada") },
+            text = { Text("A pasta $nome foi fechada no Nexus. Escolha outra. As leituras continuam neste aparelho.") },
+            confirmButton = { TextButton(onClick = { pastaFechada = null; abrirSeletor() }) { Text("Escolher outra", color = Verde) } },
         )
     }
 }
