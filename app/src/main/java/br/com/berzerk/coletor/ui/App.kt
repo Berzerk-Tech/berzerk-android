@@ -38,6 +38,7 @@ import br.com.berzerk.coletor.ui.telas.LeituraScreen
 import br.com.berzerk.coletor.ui.telas.LoginScreen
 import br.com.berzerk.coletor.ui.telas.RecebimentoScreen
 import br.com.berzerk.coletor.ui.telas.RevisaoModeloScreen
+import br.com.berzerk.coletor.ui.telas.SelecaoRevisao
 import br.com.berzerk.coletor.ui.telas.RevisaoScreen
 import br.com.berzerk.coletor.ui.telas.impressao.ImpressaoAjustesScreen
 import br.com.berzerk.coletor.ui.telas.impressao.ImpressaoListaScreen
@@ -52,6 +53,7 @@ object Rotas {
     const val RECEBIMENTO = "recebimento"
     const val CONFERENCIA = "conferencia/{loteId}"
     const val REVISAO = "revisao"
+    const val REVISAO_VARIOS = "revisao-varios"
     const val REVISAO_MODELO = "revisao/{chave}"
     const val LEITURA = "leitura"
     const val CONFIG = "config"
@@ -150,7 +152,17 @@ fun App() {
                     irConfig = { nav.navigate(Rotas.CONFIG) },
                     irLeitura = { nav.navigate(Rotas.LEITURA) },
                     abrirModelo = { nav.navigate(Rotas.revisaoModelo(it)) },
+                    lerSelecionados = { SelecaoRevisao.guardar(it); nav.navigate(Rotas.REVISAO_VARIOS) },
                 )
+            }
+            composable(Rotas.REVISAO_VARIOS) {
+                // Processo recriado: a seleção em memória se perdeu; tenta o último conjunto salvo.
+                val chaves = SelecaoRevisao.chaves.ifEmpty { SelecaoRevisao.ultimaReferencia()?.let { SelecaoRevisao.chavesDe(it) }.orEmpty() }
+                if (chaves.isEmpty()) {
+                    LaunchedEffect(Unit) { nav.popBackStack() }
+                } else {
+                    LeituraColetorScreen(AlvoLeitura.Modelos.de(chaves), voltar = { nav.popBackStack() })
+                }
             }
             composable(Rotas.REVISAO_MODELO) { entrada ->
                 val chave = entrada.arguments?.getString("chave") ?: return@composable

@@ -2,6 +2,7 @@ package br.com.berzerk.coletor.ui.telas
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -59,13 +61,16 @@ import br.com.berzerk.coletor.ui.comum.IndicadorEnvio
 import br.com.berzerk.coletor.ui.comum.LinhaConsole
 import br.com.berzerk.coletor.ui.comum.NovaPastaDialog
 import br.com.berzerk.coletor.ui.comum.PastasUi
-import br.com.berzerk.coletor.ui.comum.SeletorPasta
 import br.com.berzerk.coletor.ui.comum.RodapeLeitura
 import br.com.berzerk.coletor.ui.comum.Rotulo
+import br.com.berzerk.coletor.ui.comum.SeletorPasta
 import br.com.berzerk.coletor.ui.comum.TileTamanho
 import br.com.berzerk.coletor.ui.comum.TipoLeitura
 import br.com.berzerk.coletor.ui.comum.tamanhosDaGrade
+import br.com.berzerk.coletor.ui.theme.Borda
+import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
 import br.com.berzerk.coletor.ui.theme.Fundo
+import br.com.berzerk.coletor.ui.theme.RaioCartao
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
 import br.com.berzerk.coletor.ui.theme.Verde
@@ -74,9 +79,10 @@ import br.com.berzerk.coletor.upload.EstadoEnvio
 import br.com.berzerk.coletor.upload.PastaAlvo
 import br.com.berzerk.coletor.upload.ResultadoEnvio
 import br.com.berzerk.coletor.upload.chaveEnvio
+import java.security.MessageDigest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -86,7 +92,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 
 /** O que está sendo lido. `origem` + `referencia` identificam as linhas em `leituras` (Room). */
 sealed interface AlvoLeitura {
@@ -98,9 +104,15 @@ sealed interface AlvoLeitura {
         override val referencia get() = sessaoId
     }
 
-    data class Modelo(val chave: String) : AlvoLeitura {
+    /** Um ou mais modelos da Revisão. `chaves` sem repetição e ordenadas (a referência é estável). */
+    data class Modelos(val chaves: List<String>) : AlvoLeitura {
         override val origem get() = Origem.REVISAO
-        override val referencia get() = chave
+        /** 1 modelo = a própria chave (compatível com linhas já gravadas); vários = hash estável do conjunto. */
+        override val referencia get() = chaves.singleOrNull() ?: ("multi:" + sha1Hex(chaves.joinToString("\n")).take(16))
+
+        companion object {
+            fun de(chaves: Collection<String>) = Modelos(chaves.map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted())
+        }
     }
 
     data object Livre : AlvoLeitura {
@@ -109,8 +121,17 @@ sealed interface AlvoLeitura {
     }
 }
 
+private fun sha1Hex(texto: String): String =
+    MessageDigest.getInstance("SHA-1").digest(texto.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
 data class LeituraColetorUi(
     val resumo: ModeloResumo? = null,
+    /** Modelos do alvo, em ordem fixa (categoria, modelo): não reordena quando chega leitura. */
+    val resumos: List<ModeloResumo> = emptyList(),
+    /** Chave do modelo → etiquetas únicas dele. */
+    val porModelo: Map<String, Int> = emptyMap(),
+    /** Chave do modelo → tamanho → etiquetas únicas. */
+    val porModeloTamanho: Map<String, Map<String, Int>> = emptyMap(),
     val porTamanho: Map<String, Int> = emptyMap(),
     val doModelo: Int = 0,
     val outros: Int = 0,
@@ -171,6 +192,8 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
     private val doModelo = HashSet<String>()
     private val modelosVistos = HashSet<String>()
     private val porTamanho = HashMap<String, Int>()
+    private val porModeloTamanho = HashMap<String, HashMap<String, Int>>()
+    private val chavesAlvo: Set<String> = (alvo as? AlvoLeitura.Modelos)?.chaves.orEmpty().toSet()
     private val console = ArrayDeque<LinhaConsole>()
     private var outros = 0
     private var semCadastro = 0
@@ -191,7 +214,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         viewModelScope.launch {
             upload.estados.collect { m -> _ui.update { it.copy(estadoEnvio = m[chaveEnvio(alvo.origem, alvo.referencia)] ?: EstadoEnvio.Ocioso) } }
         }
-        if (alvo is AlvoLeitura.Modelo) viewModelScope.launch { carregarResumo(alvo.chave) }
+        if (alvo is AlvoLeitura.Modelos) viewModelScope.launch { carregarResumos(alvo.chaves) }
         viewModelScope.launch {
             _ui.update { it.copy(baseVazia = Graph.db.epcs().total() == 0L) }
             // Revisão e "Ler tudo" não acumulam: o que já subiu sai ao abrir (os pendentes ficam).
@@ -204,12 +227,14 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         }
     }
 
-    private suspend fun carregarResumo(chave: String) {
-        val linhas = Graph.db.epcs().listarModelos().filter { chaveModelo(it.categoria, it.modelo) == chave }
+    private suspend fun carregarResumos(chaves: List<String>) {
+        val alvos = chaves.toSet()
+        val linhas = Graph.db.epcs().listarModelos().filter { chaveModelo(it.categoria, it.modelo) in alvos }
         val eans = linhas.map { it.ean13 }.filter { it.isNotEmpty() }.distinct()
         val imagens = if (eans.isEmpty()) emptyMap() else Graph.itag.imagemPor(eans)
-        val resumo = montarResumos(linhas, imagens).firstOrNull()
-        _ui.update { it.copy(resumo = resumo) }
+        val resumos = montarResumos(linhas, imagens)
+            .sortedWith(compareBy<ModeloResumo, String>(String.CASE_INSENSITIVE_ORDER) { it.categoria }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.modelo })
+        _ui.update { it.copy(resumos = resumos, resumo = resumos.firstOrNull()) }
     }
 
     /** Leituras que já estavam no Room (a tela foi fechada e reaberta): classifica de novo, sem console. */
@@ -231,14 +256,17 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         if (e == null || e.nome.isNullOrBlank()) {
             semCadastro++
             if (!restaurando) adicionarConsole(LinhaConsole(fim, "", "", TipoLeitura.SEM_CADASTRO, agora))
-            return alvo !is AlvoLeitura.Modelo
+            return alvo !is AlvoLeitura.Modelos
         }
         val (cat, mod) = parseNomeItag(e.nome, e.tamanho)
         val tam = tamanhoDaEtiqueta(e.nome, e.tamanho).ifEmpty { "?" }
-        if (alvo is AlvoLeitura.Modelo) {
-            if (chaveModelo(cat, mod) == alvo.chave) {
+        if (alvo is AlvoLeitura.Modelos) {
+            val chave = chaveModelo(cat, mod)
+            if (chave in chavesAlvo) {
                 doModelo.add(epc)
                 porTamanho[tam] = (porTamanho[tam] ?: 0) + 1
+                val doM = porModeloTamanho.getOrPut(chave) { HashMap() }
+                doM[tam] = (doM[tam] ?: 0) + 1
                 if (!restaurando) adicionarConsole(LinhaConsole(fim, tam, mod, TipoLeitura.DO_ALVO, agora))
                 return true
             }
@@ -295,7 +323,8 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         publicadoLeituras = buffer.leituras
         _ui.update {
             it.copy(
-                porTamanho = HashMap(porTamanho), doModelo = doModelo.size, outros = outros, semCadastro = semCadastro,
+                porTamanho = HashMap(porTamanho), porModeloTamanho = porModeloTamanho.mapValues { (_, v) -> HashMap(v) },
+                porModelo = porModeloTamanho.mapValues { (_, v) -> v.values.sum() }, doModelo = doModelo.size, outros = outros, semCadastro = semCadastro,
                 modelos = modelosVistos.size, unicos = classificados.size, leituras = buffer.leituras, console = console.toList(),
             )
         }
@@ -308,7 +337,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
             trava.withLock {
                 buffer.zerar()
                 dao.apagar(alvo.origem, alvo.referencia)
-                classificados.clear(); doModelo.clear(); modelosVistos.clear(); porTamanho.clear(); console.clear()
+                classificados.clear(); doModelo.clear(); modelosVistos.clear(); porTamanho.clear(); porModeloTamanho.clear(); console.clear()
                 outros = 0; semCadastro = 0
                 publicar()
             }
@@ -452,7 +481,14 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
             // 1. Topo: foto + modelo, ou nome do inventário
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 when (alvo) {
-                    is AlvoLeitura.Modelo -> {
+                    is AlvoLeitura.Modelos -> if (alvo.chaves.size > 1) {
+                        Column(Modifier.weight(1f)) {
+                            Rotulo("Revisão RFID")
+                            Text("${if (ui.resumos.isNotEmpty()) ui.resumos.size else alvo.chaves.size} modelos", style = MaterialTheme.typography.headlineMedium, color = Texto)
+                            val cats = ui.resumos.map { it.categoria }.distinct()
+                            if (cats.isNotEmpty()) Text(cats.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    } else {
                         FotoProduto(resumo?.imagemUrl, 56.dp)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
@@ -479,23 +515,17 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
             if (ui.baseVazia) Text("A base de etiquetas ainda não foi baixada: as peças aparecem só como sem cadastro (Configurações → Baixar base).", color = TextoFraco, style = MaterialTheme.typography.bodySmall)
 
             // 2. Grade por tamanho: tiles do mesmo tamanho, 3 colunas (linhas manuais, sem scroll aninhado)
-            val tamanhos = if (alvo is AlvoLeitura.Modelo) resumo?.tamanhos.orEmpty() + if ((ui.porTamanho["?"] ?: 0) > 0) listOf("?") else emptyList()
-            else tamanhosDaGrade(ui.porTamanho.keys)
-            tamanhos.chunked(3).forEach { linha ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    linha.forEach { t ->
-                        val n = ui.porTamanho[t] ?: 0
-                        val eans = resumo?.eanPorTamanho?.get(if (t == "?") "" else t).orEmpty()
-                        TileTamanho(t, n, eans.firstOrNull().orEmpty(), Modifier.weight(1f), extra = if (eans.size > 1) "+${eans.size - 1}" else null)
-                    }
-                    repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
-                }
+            val varios = alvo is AlvoLeitura.Modelos && alvo.chaves.size > 1
+            if (!varios) {
+                val tamanhos = if (alvo is AlvoLeitura.Modelos) resumo?.tamanhos.orEmpty() + if ((ui.porTamanho["?"] ?: 0) > 0) listOf("?") else emptyList()
+                else tamanhosDaGrade(ui.porTamanho.keys)
+                GradeTamanhos(tamanhos, ui.porTamanho, resumo?.eanPorTamanho.orEmpty())
             }
 
             // 3. Contadores (colunas iguais)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (alvo is AlvoLeitura.Modelo) {
-                    Contador("Do modelo", ui.doModelo, Verde, Modifier.weight(1f))
+                if (alvo is AlvoLeitura.Modelos) {
+                    Contador(if (varios) "Dos modelos" else "Do modelo", ui.doModelo, Verde, Modifier.weight(1f))
                     Contador("Sem cadastro", ui.semCadastro, Vermelho, Modifier.weight(1f))
                     Contador("Outros", ui.outros, TextoFraco, Modifier.weight(1f))
                     Contador("Total lidas", ui.unicos, Texto, Modifier.weight(1f))
@@ -503,6 +533,30 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
                     Contador("Modelos", ui.modelos, Verde, Modifier.weight(1f))
                     Contador("Sem cadastro", ui.semCadastro, Vermelho, Modifier.weight(1f))
                     Contador("Total lidas", ui.unicos, Texto, Modifier.weight(1f))
+                }
+            }
+
+            // 3b. Uma seção por modelo (vários modelos)
+            if (varios) {
+                ui.resumos.forEach { r ->
+                    val contagens = ui.porModeloTamanho[r.chave].orEmpty()
+                    val total = ui.porModelo[r.chave] ?: 0
+                    val forma = RoundedCornerShape(RaioCartao)
+                    Column(
+                        Modifier.fillMaxWidth().background(CorCartao, forma).border(1.dp, Borda, forma).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FotoProduto(r.imagemUrl, 44.dp)
+                            Spacer(Modifier.width(10.dp))
+                            SeloCategoria(r.categoria)
+                            Spacer(Modifier.width(8.dp))
+                            Text(r.modelo, style = MaterialTheme.typography.titleMedium, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(8.dp))
+                            Text("$total", style = MaterialTheme.typography.headlineSmall, color = if (total > 0) Verde else TextoFraco)
+                        }
+                        GradeTamanhos(r.tamanhos + if ((contagens["?"] ?: 0) > 0) listOf("?") else emptyList(), contagens, r.eanPorTamanho)
+                    }
                 }
             }
 
@@ -577,5 +631,22 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
             text = { Text("A pasta $nome foi fechada no Nexus. Escolha outra. As leituras continuam neste aparelho.") },
             confirmButton = { TextButton(onClick = { pastaFechada = null; abrirSeletor() }) { Text("Escolher outra", color = Verde) } },
         )
+    }
+}
+
+/** Grade de tiles por tamanho, 3 colunas (linhas manuais, sem scroll aninhado). */
+@Composable
+private fun GradeTamanhos(tamanhos: List<String>, contagens: Map<String, Int>, eanPorTamanho: Map<String, List<String>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        tamanhos.chunked(3).forEach { linha ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                linha.forEach { t ->
+                    val n = contagens[t] ?: 0
+                    val eans = eanPorTamanho[if (t == "?") "" else t].orEmpty()
+                    TileTamanho(t, n, eans.firstOrNull().orEmpty(), Modifier.weight(1f), extra = if (eans.size > 1) "+${eans.size - 1}" else null)
+                }
+                repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
     }
 }

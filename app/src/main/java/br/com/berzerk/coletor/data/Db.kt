@@ -171,6 +171,9 @@ data class InventarioCacheEntity(
     val atualizadoEm: Long,
 )
 
+/** Leituras de Revisão com vários modelos ainda não enviadas, por referência (`multi:<hash>`). */
+data class PendenteReferencia(val referencia: String, val n: Int)
+
 data class ContagemLeituras(val lidas: Int, val enviadas: Int)
 data class GrupoLeitura(val origem: String, val referencia: String, val pastaId: String)
 
@@ -185,6 +188,9 @@ interface LeituraDao {
             "FROM leituras WHERE origem = :origem AND referencia = :referencia",
     )
     fun contagem(origem: String, referencia: String): Flow<ContagemLeituras>
+
+    @Query("SELECT referencia, COUNT(*) AS n FROM leituras WHERE origem = :origem AND enviadoEm IS NULL AND referencia LIKE 'multi:%' GROUP BY referencia")
+    fun pendentesMulti(origem: String): Flow<List<PendenteReferencia>>
 
     @Query("SELECT epc FROM leituras WHERE origem = :origem AND referencia = :referencia ORDER BY lidoEm, epc")
     suspend fun epcs(origem: String, referencia: String): List<String>
