@@ -43,6 +43,15 @@ class Prefs(context: Context) {
         get() = prefs.getStringSet(K_PASTAS_FECHADAS, emptySet())?.toSet().orEmpty()
         set(v) = prefs.edit().putStringSet(K_PASTAS_FECHADAS, v).apply()
 
+    /** Conjuntos de modelos lidos juntos na Revisão (JSON referência → chaves), pra retomar leitura pendente. Não é segredo. */
+    var revisaoConjuntos: String?
+        get() = prefs.getString(K_REV_CONJUNTOS, null)
+        set(v) = prefs.edit().apply { if (v == null) remove(K_REV_CONJUNTOS) else putString(K_REV_CONJUNTOS, v) }.apply()
+
+    var revisaoUltimaReferencia: String?
+        get() = prefs.getString(K_REV_ULTIMA, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().apply { if (v == null) remove(K_REV_ULTIMA) else putString(K_REV_ULTIMA, v) }.apply()
+
     /** Impressora Niimbot pareada (mac BLE e nome de exibição). Não são segredo. */
     var impressoraMac: String?
         get() = prefs.getString(K_IMP_MAC, null)?.takeIf { it.isNotBlank() }
@@ -157,6 +166,8 @@ class Prefs(context: Context) {
         private const val K_COLETOR_ID = "coletor_id"
         private const val K_PASTAS = "pastas_json"
         private const val K_PASTAS_FECHADAS = "pastas_fechadas"
+        private const val K_REV_CONJUNTOS = "revisao_conjuntos"
+        private const val K_REV_ULTIMA = "revisao_ultima_referencia"
         private const val K_IMP_MAC = "impressora_mac"
         private const val K_IMP_NOME = "impressora_nome"
         private const val K_ETQ_LARGURA = "etiqueta_largura_mm"

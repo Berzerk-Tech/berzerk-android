@@ -1,8 +1,11 @@
 package br.com.berzerk.coletor.ui.telas
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,14 +14,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,23 +45,30 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.data.ModeloResumo
+import br.com.berzerk.coletor.data.Origem
 import br.com.berzerk.coletor.data.montarResumos
 import br.com.berzerk.coletor.rfid.RfidEstado
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.Cabecalho
-import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.CampoBusca
+import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.ChipCategoria
 import br.com.berzerk.coletor.ui.comum.FotoProduto
 import br.com.berzerk.coletor.ui.comum.Ponto
 import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Borda
+import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
+import br.com.berzerk.coletor.ui.theme.Fundo
 import br.com.berzerk.coletor.ui.theme.Muted
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
-import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
 import br.com.berzerk.coletor.ui.theme.Verde
 import br.com.berzerk.coletor.ui.theme.Vermelho
+import java.text.Normalizer
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,11 +81,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.Normalizer
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Minúsculas e sem acento, pra busca. */
 internal fun normalizarBusca(s: String): String =
@@ -99,7 +107,16 @@ data class RevisaoUi(
     val categoriaSel: String? = null,
     val busca: String = "",
     val filtrados: List<ModeloResumo> = emptyList(),
+    val modoSelecao: Boolean = false,
+    /** Chaves marcadas; independe de busca e chip. */
+    val selecao: Set<String> = emptySet(),
+    /** Leituras de vários modelos que ficaram sem salvar. */
+    val pendentes: List<ConjuntoPendente> = emptyList(),
 )
+
+data class ConjuntoPendente(val referencia: String, val chaves: List<String>, val pecas: Int)
+
+const val MAX_SELECAO = 12
 
 private class IndiceBusca(val resumo: ModeloResumo, val texto: String)
 
@@ -116,6 +133,12 @@ class RevisaoViewModel : ViewModel() {
     init {
         viewModelScope.launch {
             Graph.itag.status.map { listOf(it.concluidoEm, it.modelos, it.indexando, it.imagensEm) }.distinctUntilChanged().collect { carregar() }
+        }
+        viewModelScope.launch {
+            Graph.db.leituras().pendentesMulti(Origem.REVISAO).collect { lista ->
+                val conjuntos = lista.mapNotNull { p -> SelecaoRevisao.chavesDe(p.referencia)?.let { ConjuntoPendente(p.referencia, it, p.n) } }
+                _ui.update { it.copy(pendentes = conjuntos) }
+            }
         }
         viewModelScope.launch {
             combine(indice, buscaTexto.debounce(250), categoriaSel) { idx, busca, cat -> Triple(idx, busca, cat) }
@@ -154,7 +177,11 @@ class RevisaoViewModel : ViewModel() {
         }
         // Categoria escolhida que sumiu depois de um sync volta pra "Todas".
         if (categoriaSel.value != null && categorias.none { it.first.equals(categoriaSel.value, ignoreCase = true) }) categoriaSel.value = null
-        _ui.update { it.copy(carregando = false, resumos = resumos, categorias = categorias, categoriaSel = categoriaSel.value) }
+        val existentes = resumos.map { it.chave }.toSet()
+        _ui.update {
+            val sel = it.selecao.filter { c -> c in existentes }.toSet()
+            it.copy(carregando = false, resumos = resumos, categorias = categorias, categoriaSel = categoriaSel.value, selecao = sel, modoSelecao = it.modoSelecao && sel.isNotEmpty())
+        }
         indice.value = idx
     }
 
@@ -163,6 +190,22 @@ class RevisaoViewModel : ViewModel() {
         _ui.update { it.copy(busca = texto) }
     }
 
+    fun iniciarSelecao(chave: String) {
+        _ui.update { if (chave !in it.selecao && it.selecao.size >= MAX_SELECAO) it else it.copy(modoSelecao = true, selecao = it.selecao + chave) }
+    }
+
+    fun alternarSelecao(chave: String) {
+        _ui.update {
+            when {
+                chave in it.selecao -> it.copy(selecao = it.selecao - chave)
+                it.selecao.size >= MAX_SELECAO -> it
+                else -> it.copy(selecao = it.selecao + chave)
+            }
+        }
+    }
+
+    fun limparSelecao() { _ui.update { it.copy(modoSelecao = false, selecao = emptySet()) } }
+
     fun escolherCategoria(cat: String?) {
         categoriaSel.value = cat
         _ui.update { it.copy(categoriaSel = cat) }
@@ -170,13 +213,15 @@ class RevisaoViewModel : ViewModel() {
 }
 
 @Composable
-fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Unit, abrirModelo: (String) -> Unit) {
+fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Unit, abrirModelo: (String) -> Unit, lerSelecionados: (List<String>) -> Unit) {
     val vm: RevisaoViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     val sync by Graph.itag.status.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val ocupado = sync.rodando || sync.indexando
     val fmt = NumberFormat.getIntegerInstance(Locale("pt", "BR"))
+
+    BackHandler(enabled = ui.modoSelecao) { vm.limparSelecao() }
 
     Column(Modifier.fillMaxSize()) {
         Cabecalho("Revisão RFID", rotulo = null, aoVoltar = voltar, acao = {
@@ -224,6 +269,21 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
                 .background(Muted).border(1.dp, Borda, RoundedCornerShape(6.dp)).clickable(onClick = irLeitura),
             contentAlignment = Alignment.Center,
         ) { Text("Ler tudo (sem filtro de modelo)", style = MaterialTheme.typography.titleSmall, color = Texto) }
+        if (!ui.modoSelecao) Text(
+            "Toque e segure num modelo pra ler vários de uma vez.",
+            style = MaterialTheme.typography.bodySmall, color = TextoFraco, modifier = Modifier.padding(horizontal = 16.dp),
+        )
+
+        if (!ui.modoSelecao) ui.pendentes.forEach { c ->
+            val forma = RoundedCornerShape(br.com.berzerk.coletor.ui.theme.RaioCartao)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).background(CorCartao, forma).border(1.dp, Ambar, forma).padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("${c.pecas} peças lidas em ${c.chaves.size} modelos ainda não salvas", style = MaterialTheme.typography.bodyMedium, color = Ambar, modifier = Modifier.weight(1f))
+                TextButton(onClick = { lerSelecionados(c.chaves) }) { Text("Retomar", color = Texto) }
+            }
+        }
 
         LazyColumn(
             Modifier.weight(1f),
@@ -249,7 +309,30 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
                     }
                 }
             }
-            items(ui.filtrados, key = { it.chave }) { m -> CartaoModelo(m) { abrirModelo(m.chave) } }
+            items(ui.filtrados, key = { it.chave }) { m ->
+                CartaoModelo(
+                    m, selecionado = m.chave in ui.selecao, modoSelecao = ui.modoSelecao,
+                    onClick = { if (ui.modoSelecao) vm.alternarSelecao(m.chave) else abrirModelo(m.chave) },
+                    onLongClick = { if (ui.modoSelecao) vm.alternarSelecao(m.chave) else vm.iniciarSelecao(m.chave) },
+                )
+            }
+        }
+
+        if (ui.modoSelecao) {
+            val n = ui.selecao.size
+            Row(
+                Modifier.fillMaxWidth().background(Fundo).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(if (n >= MAX_SELECAO) "$n selecionados · máx. $MAX_SELECAO" else if (n == 1) "1 selecionado" else "$n selecionados", style = MaterialTheme.typography.titleSmall, color = Texto, modifier = Modifier.weight(1f))
+                TextButton(onClick = vm::limparSelecao) { Text("Limpar", color = TextoFraco) }
+                val ok = n > 0
+                Box(
+                    Modifier.height(48.dp).clip(RoundedCornerShape(6.dp)).background(if (ok) Verde else Muted)
+                        .clickable(enabled = ok) { lerSelecionados(ui.selecao.sorted()); vm.limparSelecao() }.padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (n == 1) "LER 1 MODELO" else "LER $n MODELOS", style = MaterialTheme.typography.titleSmall, color = if (ok) Fundo else TextoFraco, maxLines = 1) }
+            }
         }
     }
 }
@@ -261,11 +344,14 @@ internal fun SeloCategoria(categoria: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CartaoModelo(m: ModeloResumo, onClick: () -> Unit) {
+private fun CartaoModelo(m: ModeloResumo, selecionado: Boolean, modoSelecao: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val forma = RoundedCornerShape(br.com.berzerk.coletor.ui.theme.RaioCartao)
     Row(
-        Modifier.fillMaxWidth().clip(forma).background(CorCartao, forma).border(1.dp, Borda, forma).clickable(onClick = onClick).padding(12.dp),
+        Modifier.fillMaxWidth().clip(forma).background(CorCartao, forma)
+            .border(if (selecionado) 2.dp else 1.dp, if (selecionado) Verde else Borda, forma)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FotoProduto(m.imagemUrl, 64.dp)
@@ -285,6 +371,10 @@ private fun CartaoModelo(m: ModeloResumo, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.width(8.dp))
-        Text("›", style = MaterialTheme.typography.titleLarge, color = TextoFraco)
+        when {
+            !modoSelecao -> Text("›", style = MaterialTheme.typography.titleLarge, color = TextoFraco)
+            selecionado -> Icon(Icons.Default.CheckCircle, contentDescription = "Selecionado", tint = Verde, modifier = Modifier.size(22.dp))
+            else -> Box(Modifier.size(22.dp).border(1.5.dp, TextoFraco, CircleShape))
+        }
     }
 }
