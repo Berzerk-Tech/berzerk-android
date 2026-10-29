@@ -116,7 +116,7 @@ data class RevisaoUi(
 
 data class ConjuntoPendente(val referencia: String, val chaves: List<String>, val pecas: Int)
 
-const val MAX_SELECAO = 12
+const val MAX_SELECAO = 20
 
 private class IndiceBusca(val resumo: ModeloResumo, val texto: String)
 
