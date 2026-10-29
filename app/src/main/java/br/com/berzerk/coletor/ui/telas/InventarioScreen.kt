@@ -330,24 +330,32 @@ fun InventarioSessaoScreen(sessaoId: String, voltar: () -> Unit, ler: (RfidSessa
         // Rodapé: LER (pasta aberta) ou RETOMAR LEITURA (este aparelho tem leitura pendente, mesmo com a pasta fechada:
         // o SALVAR da leitura deixa escolher outra pasta).
         val pendentes = ui.pendentesAqui
+        val lidasAqui = ui.lidasAqui
         if (sessao != null && (sessao.aberta || pendentes > 0)) {
             Column(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (pendentes > 0) {
+                if (lidasAqui > 0) {
                     val forma = RoundedCornerShape(br.com.berzerk.coletor.ui.theme.RaioCartao)
+                    val cor = if (pendentes > 0) Ambar else Verde
                     Row(
-                        Modifier.fillMaxWidth().background(br.com.berzerk.coletor.ui.theme.Cartao, forma).border(1.dp, Ambar, forma).padding(horizontal = 12.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().background(br.com.berzerk.coletor.ui.theme.Cartao, forma).border(1.dp, cor, forma).padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("${formatarInteiro(pendentes)} peças lidas neste aparelho ainda não salvas", style = MaterialTheme.typography.titleSmall, color = Ambar)
                             Text(
-                                if (ui.lidasAqui > pendentes) "${formatarInteiro(ui.lidasAqui)} lidas aqui no total. Retome pra continuar de onde parou e salvar." else "Retome pra continuar de onde parou e salvar.",
+                                if (pendentes > 0) "${formatarInteiro(pendentes)} peças lidas neste aparelho ainda não salvas"
+                                else "${formatarInteiro(lidasAqui)} peças já lidas por este aparelho nesta pasta",
+                                style = MaterialTheme.typography.titleSmall, color = cor,
+                            )
+                            Text(
+                                if (pendentes in 1 until lidasAqui) "${formatarInteiro(lidasAqui)} lidas aqui no total. Retome pra continuar de onde parou e salvar."
+                                else if (pendentes > 0) "Retome pra continuar de onde parou e salvar."
+                                else "Retome pra continuar a contagem com a grade e os contadores de onde pararam.",
                                 style = MaterialTheme.typography.bodySmall, color = TextoFraco,
                             )
                         }
                     }
                 }
-                BotaoGrande(if (pendentes > 0) "RETOMAR LEITURA" else "LER", onClick = { ler(sessao) }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
+                BotaoGrande(if (lidasAqui > 0) "RETOMAR LEITURA" else "LER", onClick = { ler(sessao) }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
             }
         }
     }
