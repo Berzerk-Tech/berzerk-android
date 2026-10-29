@@ -326,6 +326,16 @@ data class InventarioProdutoDto(
     val reservadoNaoLiberado: Int = 0,
     val disponivel: Int = 0,
     val tamanhos: List<InventarioTamanhoDto> = emptyList(),
+    /** Quem leu este produto na sessão (com sobreposição: a soma pode passar de `contado`). Nexus ≥ a versão que expõe `porColetor`; ausente no Nexus velho e no cache antigo. */
+    val porColetor: List<InventarioPorColetorDto> = emptyList(),
+)
+
+@Serializable
+data class InventarioPorColetorDto(
+    val coletorId: String = "",
+    val nome: String = "",
+    /** EPCs distintos deste produto lidos por este coletor na sessão. */
+    val contado: Int = 0,
 )
 
 @Serializable

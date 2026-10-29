@@ -390,6 +390,14 @@ private fun CartaoProdutoInventario(p: InventarioProdutoDto, expandido: Boolean,
             LinhaDetalhe("Reservado", p.reservado)
             LinhaDetalhe("Reservado (não liberado)", p.reservadoNaoLiberado)
             LinhaDetalhe("Disponível", p.disponivel)
+            // Quem leu: a lista acima é 1 por peça (o Nexus desduplica entre coletores); aqui aparece a sobreposição.
+            if (p.porColetor.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Lido por: " + p.porColetor.joinToString(" · ") { "${it.nome} (${formatarInteiro(it.contado)})" },
+                    style = MaterialTheme.typography.bodySmall, color = Texto,
+                )
+            }
             if (p.tamanhos.isNotEmpty()) Spacer(Modifier.height(6.dp))
             p.tamanhos.forEach { t ->
                 Text(
