@@ -584,13 +584,20 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     if (confirmaSaida) {
         AlertDialog(
             onDismissRequest = { confirmaSaida = false },
-            title = { Text("Você tem ${ui.aSalvar} peças lidas e não salvas") },
-            text = { Text("Salve agora pra mandar pro Nexus. Se sair sem salvar, elas ficam neste aparelho até você voltar aqui e salvar numa pasta.") },
+            title = { Text("${ui.aSalvar} peças lidas e não salvas") },
+            text = {
+                val onde = when (alvo) {
+                    is AlvoLeitura.Inventario -> "na pasta, em RETOMAR LEITURA"
+                    is AlvoLeitura.Modelos -> if (alvo.chaves.size > 1) "na lista da Revisão, em Retomar" else "abrindo este modelo de novo na Revisão"
+                    AlvoLeitura.Livre -> "em Ler tudo"
+                }
+                Text("Salvar agora manda pro Nexus. Voltar guarda a leitura neste aparelho: a grade e os contadores continuam de onde pararam quando você retomar $onde.")
+            },
             confirmButton = { TextButton(enabled = !envioVivo, onClick = { confirmaSaida = false; sairDepoisDeSalvar = true; abrirSeletor() }) { Text("Salvar agora", color = Verde) } },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { confirmaSaida = false }) { Text("Ficar", color = Texto) }
-                    TextButton(onClick = { confirmaSaida = false; vm.sair(voltar) }) { Text("Sair mesmo assim", color = Vermelho) }
+                    TextButton(onClick = { confirmaSaida = false }) { Text("Ficar", color = TextoFraco) }
+                    TextButton(onClick = { confirmaSaida = false; vm.sair(voltar) }) { Text("Voltar e continuar depois", color = Texto) }
                 }
             },
         )

@@ -195,6 +195,9 @@ data class InventarioSessaoUi(
     val inventario: InventarioSessaoDto? = null,
     val carregando: Boolean = true,
     val erro: String? = null,
+    /** Leituras DESTE aparelho pra esta pasta (Room): o que já leu e o que ainda não subiu. */
+    val lidasAqui: Int = 0,
+    val pendentesAqui: Int = 0,
 )
 
 class InventarioSessaoViewModel(private val sessaoId: String) : ViewModel() {
@@ -213,6 +216,11 @@ class InventarioSessaoViewModel(private val sessaoId: String) : ViewModel() {
         }
         viewModelScope.launch {
             Graph.upload.concluidos.collect { if (it.pastaId == sessaoId) recarregar() }
+        }
+        viewModelScope.launch {
+            dao.contagem(Origem.INVENTARIO, sessaoId).collect { c ->
+                _ui.update { it.copy(lidasAqui = c.lidas, pendentesAqui = (c.lidas - c.enviadas).coerceAtLeast(0)) }
+            }
         }
     }
 
@@ -319,9 +327,27 @@ fun InventarioSessaoScreen(sessaoId: String, voltar: () -> Unit, ler: (RfidSessa
                 }
             }
         }
-        if (sessao?.aberta == true) {
-            Column(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding()) {
-                BotaoGrande("LER", onClick = { ler(sessao) }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
+        // Rodapé: LER (pasta aberta) ou RETOMAR LEITURA (este aparelho tem leitura pendente, mesmo com a pasta fechada:
+        // o SALVAR da leitura deixa escolher outra pasta).
+        val pendentes = ui.pendentesAqui
+        if (sessao != null && (sessao.aberta || pendentes > 0)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (pendentes > 0) {
+                    val forma = RoundedCornerShape(br.com.berzerk.coletor.ui.theme.RaioCartao)
+                    Row(
+                        Modifier.fillMaxWidth().background(br.com.berzerk.coletor.ui.theme.Cartao, forma).border(1.dp, Ambar, forma).padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${formatarInteiro(pendentes)} peças lidas neste aparelho ainda não salvas", style = MaterialTheme.typography.titleSmall, color = Ambar)
+                            Text(
+                                if (ui.lidasAqui > pendentes) "${formatarInteiro(ui.lidasAqui)} lidas aqui no total. Retome pra continuar de onde parou e salvar." else "Retome pra continuar de onde parou e salvar.",
+                                style = MaterialTheme.typography.bodySmall, color = TextoFraco,
+                            )
+                        }
+                    }
+                }
+                BotaoGrande(if (pendentes > 0) "RETOMAR LEITURA" else "LER", onClick = { ler(sessao) }, cor = Verde, corTexto = br.com.berzerk.coletor.ui.theme.Fundo)
             }
         }
     }
