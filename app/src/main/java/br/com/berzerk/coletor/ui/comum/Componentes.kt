@@ -301,7 +301,7 @@ fun ConsoleLeituras(linhas: List<LinhaConsole>, unicos: Int, leituras: Int, dest
     }
     Box(Modifier.fillMaxWidth().height(140.dp).clip(forma).background(Fundo).border(1.dp, Borda, forma).padding(8.dp)) {
         if (linhas.isEmpty()) {
-            Text("Segure o gatilho ou toque em LER.", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
+            Text("Aperte o gatilho ou toque em LER. Pra parar, toque em PARAR.", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
         } else {
             LazyColumn(state = lista) {
                 itemsIndexed(linhas) { _, l ->

@@ -27,7 +27,8 @@ data class Leitura(val epc: String, val rssi: Int, val em: Long = System.current
  * `stopInventory`. Uma instância por processo; as telas só consomem `leituras`.
  *
  * O gatilho físico chega como KeyEvent na Activity (keycodes 523 e 515 nos
- * aparelhos da Urovo) e vira `gatilho(true/false)` aqui.
+ * aparelhos da Urovo): apertar vira `gatilho(true)`; soltar não faz nada. Parar é só
+ * pelo botão da tela (`gatilho(false)`).
  */
 object RfidReader {
     private const val TAG = "Rfid"
@@ -89,7 +90,7 @@ object RfidReader {
         }
     }
 
-    /** Gatilho físico ou botão da tela. */
+    /** Gatilho físico (só `true`) ou botão LER/PARAR da tela. Ligar com a leitura já ligada é no-op. */
     fun gatilho(apertado: Boolean) {
         gatilhoApertado = apertado
         if (apertado) comecar() else parar()
@@ -97,7 +98,8 @@ object RfidReader {
 
     fun comecar(): Boolean {
         val m = manager ?: return false
-        if (_estado.value !is RfidEstado.Pronto && _estado.value !is RfidEstado.Lendo) return false
+        if (_estado.value is RfidEstado.Lendo) return true
+        if (_estado.value !is RfidEstado.Pronto) return false
         val r = runCatching { m.startInventory() }.getOrDefault(-1)
         if (r == 0) {
             _estado.value = RfidEstado.Lendo

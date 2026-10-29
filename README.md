@@ -20,7 +20,7 @@ que lia o Supabase do legado.
 | Impressão | Etiquetas na **Niimbot B31** por Bluetooth Low Energy (protocolo = port do niimbluelib, sem Nexus nem chave de API). Lista de produtos da base local (mesma busca/chips da Revisão) → tocar nos tamanhos **seleciona** (não imprime); o rodapé "IMPRIMIR (n etiquetas)" enfileira um trabalho por tamanho × "cópias por tamanho" e limpa a seleção ("Todos"/"Nenhum" no rodapé). A **fila fica visível** (imprimindo em verde, esperando em cinza, "Limpar fila"). Etiqueta: tamanho gigante + EAN + nome, 1 bit, 600 px de largura; nome/EAN **embaixo ou em cima** (Ajustes). Ajustes: buscar/parear a impressora, tamanho do rolo (padrão 80×100 mm), tipo de papel, densidade e **modo de impressão** (Automático = D110M V4 na B31; B1 e D110 de reserva se sair em branco) e **envio rápido** (várias linhas por escrita BLE; desligue se faltarem linhas). Permissões: Android ≥ 12 `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`; Android 11 (DT50) `BLUETOOTH*` + localização (a varredura BLE exige a Localização do aparelho ligada). O app não liga o Bluetooth sozinho | — |
 | Atualização | Versão nova = diálogo; abaixo da mínima (426 `app_desatualizado`) = tela de bloqueio que baixa o APK e abre o instalador | `GET /android/release`, `android_versao_minima` (admin → Configurações) |
 
-Gatilho físico: keycodes 523 (gatilho) e 515 (PTT), mais 520–522 (teclas laterais).
+Gatilho físico: keycodes 523 (gatilho) e 515 (PTT), mais 520–522 (teclas laterais). Apertar só **liga** a leitura; soltar não desliga. Parar é só pelo botão PARAR da tela (desde a 0.3.14). A tela nunca apaga com o app na frente (`FLAG_KEEP_SCREEN_ON`).
 O botão ▶ da tela faz o mesmo.
 
 ## Compliance
