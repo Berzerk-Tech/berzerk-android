@@ -252,19 +252,26 @@ fun TileTamanho(
     cor: Color = Verde,
     rodape: String? = null,
     corNumero: Color? = null,
+    /** Cinco por linha (Revisão): tile mais baixo, número e EAN menores. */
+    compacto: Boolean = false,
 ) {
     val forma = RoundedCornerShape(10.dp)
     Column(
-        modifier.height(112.dp).background(Muted, forma).border(1.dp, Borda, forma).padding(horizontal = 6.dp, vertical = 12.dp),
+        modifier.height(if (compacto) 84.dp else 112.dp).background(Muted, forma).border(1.dp, Borda, forma)
+            .padding(horizontal = if (compacto) 2.dp else 6.dp, vertical = if (compacto) 8.dp else 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Text(tamanho, style = MaterialTheme.typography.labelLarge, color = TextoFraco)
-        Text("$quantidade", style = MaterialTheme.typography.displaySmall, color = corNumero ?: if (quantidade > 0) cor else Texto)
+        Text(tamanho, style = if (compacto) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge, color = TextoFraco, maxLines = 1)
+        Text(
+            "$quantidade",
+            style = if (compacto) MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp) else MaterialTheme.typography.displaySmall,
+            color = corNumero ?: if (quantidade > 0) cor else Texto, maxLines = 1, softWrap = false,
+        )
         if (rodape != null) Text(rodape, style = MaterialTheme.typography.labelSmall, color = TextoFraco, maxLines = 1)
         if (ean.isNotEmpty()) {
             Text(
                 ean + if (extra != null) " $extra" else "",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, letterSpacing = 0.sp), color = TextoFraco, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = if (compacto) 7.sp else 10.sp, letterSpacing = 0.sp), color = TextoFraco, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
                 textAlign = TextAlign.Center,
             )
         }

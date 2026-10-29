@@ -70,6 +70,7 @@ import br.com.berzerk.coletor.ui.comum.tamanhosDaGrade
 import br.com.berzerk.coletor.ui.theme.Borda
 import br.com.berzerk.coletor.ui.theme.Cartao as CorCartao
 import br.com.berzerk.coletor.ui.theme.Fundo
+import br.com.berzerk.coletor.ui.theme.Muted
 import br.com.berzerk.coletor.ui.theme.RaioCartao
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
@@ -547,13 +548,14 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            FotoProduto(r.imagemUrl, 44.dp)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FotoProduto(r.imagemUrl, 56.dp)
+                                SeloCategoria(r.categoria)
+                            }
                             Spacer(Modifier.width(10.dp))
-                            SeloCategoria(r.categoria)
+                            Text(r.modelo, style = MaterialTheme.typography.titleMedium, color = Texto, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Spacer(Modifier.width(8.dp))
-                            Text(r.modelo, style = MaterialTheme.typography.titleMedium, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Spacer(Modifier.width(8.dp))
-                            Text("$total", style = MaterialTheme.typography.headlineSmall, color = if (total > 0) Verde else TextoFraco)
+                            BadgeTotal(total)
                         }
                         GradeTamanhos(r.tamanhos + if ((contagens["?"] ?: 0) > 0) listOf("?") else emptyList(), contagens, r.eanPorTamanho)
                     }
@@ -634,18 +636,35 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     }
 }
 
-/** Grade de tiles por tamanho, 3 colunas (linhas manuais, sem scroll aninhado). */
+/** Total do modelo no card (vários modelos): caixa clara quando já leu algo. */
 @Composable
-private fun GradeTamanhos(tamanhos: List<String>, contagens: Map<String, Int>, eanPorTamanho: Map<String, List<String>>) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        tamanhos.chunked(3).forEach { linha ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun BadgeTotal(total: Int) {
+    val forma = RoundedCornerShape(10.dp)
+    val temLeitura = total > 0
+    Column(
+        Modifier.background(if (temLeitura) Texto else Muted, forma).border(1.dp, Borda, forma).padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("TOTAL", style = MaterialTheme.typography.labelSmall, color = if (temLeitura) Fundo else TextoFraco)
+        Text("$total", style = MaterialTheme.typography.headlineMedium, color = if (temLeitura) Fundo else Texto, maxLines = 1, softWrap = false)
+    }
+}
+
+/**
+ * Grade de tiles por tamanho, 5 colunas (a régua P/M/G/GG/XG cabe numa linha; com mais tamanhos quebra
+ * pra baixo). Linhas manuais, sem scroll aninhado.
+ */
+@Composable
+private fun GradeTamanhos(tamanhos: List<String>, contagens: Map<String, Int>, eanPorTamanho: Map<String, List<String>>, colunas: Int = 5) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        tamanhos.chunked(colunas).forEach { linha ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 linha.forEach { t ->
                     val n = contagens[t] ?: 0
                     val eans = eanPorTamanho[if (t == "?") "" else t].orEmpty()
-                    TileTamanho(t, n, eans.firstOrNull().orEmpty(), Modifier.weight(1f), extra = if (eans.size > 1) "+${eans.size - 1}" else null)
+                    TileTamanho(t, n, eans.firstOrNull().orEmpty(), Modifier.weight(1f), extra = if (eans.size > 1) "+${eans.size - 1}" else null, compacto = true)
                 }
-                repeat(3 - linha.size) { Spacer(Modifier.weight(1f)) }
+                repeat(colunas - linha.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
