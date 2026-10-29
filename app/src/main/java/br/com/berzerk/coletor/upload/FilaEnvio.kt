@@ -6,6 +6,7 @@ import br.com.berzerk.coletor.api.UploadResponse
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.data.GrupoLeitura
 import br.com.berzerk.coletor.data.LeituraDao
+import br.com.berzerk.coletor.data.Origem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
@@ -28,6 +29,8 @@ class RoomRepoLeituras(private val dao: LeituraDao) : RepoLeituras {
     override suspend fun marcarEnviadas(origem: String, referencia: String, pastaId: String, epcs: List<String>, em: Long) {
         // Limite de variáveis do SQLite: IN (...) em pedaços.
         epcs.chunked(500).forEach { dao.marcarEnviadas(origem, referencia, pastaId, it, em) }
+        // O que a Revisão / "Ler tudo" mandou pra pasta vira histórico da pasta neste aparelho (RETOMAR LEITURA).
+        if (origem != Origem.INVENTARIO) dao.espelharEnviadasNaPasta(origem, referencia, pastaId)
     }
 
     override suspend fun atribuirPasta(origem: String, referencia: String, pastaId: String, fechadas: Set<String>) = dao.atribuirPasta(origem, referencia, pastaId, fechadas.toList())

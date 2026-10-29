@@ -94,7 +94,11 @@ object Graph {
         impressora = Impressora(app, prefs)
         scope.launch { client.atualizacaoObrigatoria.collect { update.marcarObrigatoria(it) } }
         scope.launch { itag.carregarStatus() }
-        // Leitura já enviada há mais de 30 dias não precisa ficar no aparelho.
-        scope.launch { runCatching { db.leituras().apagarEnviadasAntes(System.currentTimeMillis() - 30L * 24 * 3600_000) } }
+        scope.launch {
+            // Leitura da Revisão / "Ler tudo" já enviada a uma pasta vira histórico da pasta (RETOMAR LEITURA); idempotente.
+            runCatching { db.leituras().espelharTodasEnviadasNasPastas() }.onFailure { Log.w("Leitura", "espelho nas pastas falhou", it) }
+            // Leitura já enviada há mais de 30 dias não precisa ficar no aparelho.
+            runCatching { db.leituras().apagarEnviadasAntes(System.currentTimeMillis() - 30L * 24 * 3600_000) }
+        }
     }
 }

@@ -1,5 +1,7 @@
 package br.com.berzerk.coletor.ui.telas
 
+import android.util.Log
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -246,6 +248,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
             parte.forEach { epc -> classificar(epc, achados[epc], restaurando = true) }
         }
         buffer.somarLeituras(existentes.size)
+        Log.i("Leitura", "restaurou ${existentes.size} leituras de ${alvo.origem}/${alvo.referencia}")
         publicar()
     }
 

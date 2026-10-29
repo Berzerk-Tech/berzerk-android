@@ -230,6 +230,26 @@ interface LeituraDao {
     @Query("DELETE FROM leituras WHERE origem = :origem AND referencia = :referencia AND enviadoEm IS NOT NULL")
     suspend fun apagarEnviadas(origem: String, referencia: String)
 
+    /**
+     * Espelha na PASTA o que (origem, referencia) acabou de enviar pra ela: linha `inventario`/`pastaId`, já
+     * enviada. Assim a leitura da pasta (RETOMAR) mostra tudo que ESTE aparelho já leu pra ela, inclusive o que
+     * veio da Revisão ou do "Ler tudo" — que apagam as próprias linhas enviadas ao reabrir. `lidoEm` é o original.
+     */
+    @Query(
+        "INSERT OR IGNORE INTO leituras (epc, lidoEm, origem, referencia, enviadoEm, pastaId) " +
+            "SELECT epc, lidoEm, 'inventario', pastaId, enviadoEm, pastaId FROM leituras " +
+            "WHERE origem = :origem AND referencia = :referencia AND pastaId = :pastaId AND enviadoEm IS NOT NULL AND origem != 'inventario'",
+    )
+    suspend fun espelharEnviadasNaPasta(origem: String, referencia: String, pastaId: String)
+
+    /** Backfill do espelho acima pra tudo que já foi enviado antes dele existir (idempotente; roda no início). */
+    @Query(
+        "INSERT OR IGNORE INTO leituras (epc, lidoEm, origem, referencia, enviadoEm, pastaId) " +
+            "SELECT epc, lidoEm, 'inventario', pastaId, enviadoEm, pastaId FROM leituras " +
+            "WHERE origem != 'inventario' AND pastaId IS NOT NULL AND enviadoEm IS NOT NULL",
+    )
+    suspend fun espelharTodasEnviadasNasPastas()
+
     /** Limpeza geral: enviadas antes de [limite] (epoch ms), de qualquer origem. */
     @Query("DELETE FROM leituras WHERE enviadoEm IS NOT NULL AND enviadoEm < :limite")
     suspend fun apagarEnviadasAntes(limite: Long)
