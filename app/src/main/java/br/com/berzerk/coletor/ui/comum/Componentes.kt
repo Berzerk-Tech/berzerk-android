@@ -254,6 +254,8 @@ fun TileTamanho(
     corNumero: Color? = null,
     /** Cinco por linha (Revisão): tile mais baixo, número e EAN menores. */
     compacto: Boolean = false,
+    /** Troca o número (ex.: "—" quando não há valor). */
+    textoValor: String? = null,
 ) {
     val forma = RoundedCornerShape(10.dp)
     Column(
@@ -263,7 +265,7 @@ fun TileTamanho(
     ) {
         Text(tamanho, style = if (compacto) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge, color = TextoFraco, maxLines = 1)
         Text(
-            "$quantidade",
+            textoValor ?: "$quantidade",
             style = if (compacto) MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp) else MaterialTheme.typography.displaySmall,
             color = corNumero ?: if (quantidade > 0) cor else Texto, maxLines = 1, softWrap = false,
         )

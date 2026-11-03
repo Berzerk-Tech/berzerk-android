@@ -87,6 +87,13 @@ interface NexusApi {
     @GET("revisao-rfid/sessoes/{sessaoId}/inventario")
     suspend fun inventarioSessao(@Path("sessaoId") sessaoId: String): InventarioSessaoDto
 
+    // --- estoque da loja × picking × RFID (Revisão por modelo; substituir exige loja:manage) ---
+    @POST("revisao-rfid/estoque-loja/consultar")
+    suspend fun consultarEstoqueLoja(@Body body: ConsultaEstoqueLojaBody): EstoqueLojaDto
+
+    @POST("revisao-rfid/estoque-loja/{produtoId}/substituir")
+    suspend fun substituirEstoqueLoja(@Path("produtoId") produtoId: String, @Body body: SubstituirEstoqueLojaBody): SubstituirEstoqueLojaResponse
+
     // --- operador (reconhecimento facial; Bearer do aparelho, sem token de operador ainda) ---
     @Multipart
     @POST("android/operador/identificar")
