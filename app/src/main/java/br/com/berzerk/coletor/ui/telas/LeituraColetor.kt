@@ -510,7 +510,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
  * Salvar agora / Sair mesmo assim / Ficar.
  */
 @Composable
-fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
+fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, aoAbrirHistorico: () -> Unit = {}) {
     val vm: LeituraColetorViewModel = viewModel(
         key = "leitura:${alvo.origem}:${alvo.referencia}",
         factory = viewModelFactory { initializer { LeituraColetorViewModel(alvo) } },
@@ -540,7 +540,7 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     if (lojaAtual != null && resumo != null) {
         EstoqueLojaTela(
             resumo = resumo, estado = lojaAtual,
-            aoAtualizar = { vm.consultarLoja(null) }, aoSubstituir = vm::substituirLoja, aoFechar = vm::fecharLoja,
+            aoAtualizar = { vm.consultarLoja(null) }, aoSubstituir = vm::substituirLoja, aoFechar = vm::fecharLoja, aoAbrirHistorico = aoAbrirHistorico,
         )
         return
     }
