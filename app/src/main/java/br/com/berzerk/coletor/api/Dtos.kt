@@ -364,3 +364,63 @@ data class InventarioSessaoDto(
 /** `GET revisao-rfid/sessoes/{id}/cabecalho` (fatia leve do resumo): só a sessão interessa ao coletor. */
 @Serializable
 data class CabecalhoSessaoDto(val sessao: RfidSessaoDto = RfidSessaoDto())
+
+// --- Estoque da loja × picking × RFID (revisao-rfid/estoque-loja/*) ---
+// Campos do BODY sem default de propósito: o Json não codifica defaults (encodeDefaults = false).
+
+@Serializable
+data class LidaEanDto(val ean: String, val qtd: Int)
+
+@Serializable
+data class ConsultaEstoqueLojaBody(val lidas: List<LidaEanDto>, val margemPct: Int)
+
+@Serializable
+data class ProdutoLojaDto(val id: String = "", val nome: String = "", val imagemUrl: String? = null)
+
+@Serializable
+data class VarianteLojaDto(
+    val varianteId: String = "",
+    /** Nulos quando a variante não tem tamanho/EAN cadastrado (a tela mostra "?"). */
+    val tamanho: String? = null,
+    val ean: String? = null,
+    val cor: String? = null,
+    /** null = variante sem vínculo na Shopify. */
+    val estoqueLoja: Int? = null,
+    val lidas: Int = 0,
+    val picking: Int = 0,
+    val novo: Int = 0,
+)
+
+@Serializable
+data class TotaisLojaDto(val estoqueLoja: Int = 0, val lidas: Int = 0, val picking: Int = 0, val novo: Int = 0)
+
+@Serializable
+data class OutroProdutoLojaDto(val id: String = "", val nome: String = "", val eans: Int = 0)
+
+@Serializable
+data class EstoqueLojaDto(
+    val produto: ProdutoLojaDto = ProdutoLojaDto(),
+    val margemPct: Int = 5,
+    val maisDeUmaCor: Boolean = false,
+    val podeSubstituir: Boolean = false,
+    val variantes: List<VarianteLojaDto> = emptyList(),
+    val totais: TotaisLojaDto = TotaisLojaDto(),
+    val eansNaoCasados: List<String> = emptyList(),
+    val outrosProdutos: List<OutroProdutoLojaDto> = emptyList(),
+    val consultadoEm: String = "",
+)
+
+@Serializable
+data class QuantidadeLojaDto(val varianteId: String, val quantidade: Int, val de: Int)
+
+@Serializable
+data class OrigemSubstituicaoDto(val lidas: Int, val picking: Int, val margemPct: Int, val dispositivo: String)
+
+@Serializable
+data class SubstituirEstoqueLojaBody(val quantidades: List<QuantidadeLojaDto>, val origem: OrigemSubstituicaoDto)
+
+@Serializable
+data class VarianteSubstituidaDto(val varianteId: String = "", val quantidade: Int = 0)
+
+@Serializable
+data class SubstituirEstoqueLojaResponse(val variantes: List<VarianteSubstituidaDto> = emptyList())

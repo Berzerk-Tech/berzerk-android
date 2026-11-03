@@ -3,6 +3,7 @@ package br.com.berzerk.coletor.ui.telas
 import android.util.Log
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ShoppingBag
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import br.com.berzerk.coletor.api.ApiException
+import br.com.berzerk.coletor.api.mensagemCurta
+import br.com.berzerk.coletor.data.montarConsultaLoja
+import br.com.berzerk.coletor.data.montarSubstituirLoja
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -136,6 +144,8 @@ data class LeituraColetorUi(
     /** Chave do modelo → tamanho → etiquetas únicas. */
     val porModeloTamanho: Map<String, Map<String, Int>> = emptyMap(),
     val porTamanho: Map<String, Int> = emptyMap(),
+    /** EAN → etiquetas únicas do alvo (base da consulta de estoque da loja). */
+    val lidasPorEan: Map<String, Int> = emptyMap(),
     val doModelo: Int = 0,
     val outros: Int = 0,
     val semCadastro: Int = 0,
@@ -195,6 +205,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
     private val doModelo = HashSet<String>()
     private val modelosVistos = HashSet<String>()
     private val porTamanho = HashMap<String, Int>()
+    private val porEan = HashMap<String, Int>()
     private val porModeloTamanho = HashMap<String, HashMap<String, Int>>()
     private val chavesAlvo: Set<String> = (alvo as? AlvoLeitura.Modelos)?.chaves.orEmpty().toSet()
     private val console = ArrayDeque<LinhaConsole>()
@@ -268,6 +279,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
             val chave = chaveModelo(cat, mod)
             if (chave in chavesAlvo) {
                 doModelo.add(epc)
+                e.ean13?.takeIf { it.isNotEmpty() }?.let { ean -> porEan[ean] = (porEan[ean] ?: 0) + 1 }
                 porTamanho[tam] = (porTamanho[tam] ?: 0) + 1
                 val doM = porModeloTamanho.getOrPut(chave) { HashMap() }
                 doM[tam] = (doM[tam] ?: 0) + 1
@@ -327,11 +339,53 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
         publicadoLeituras = buffer.leituras
         _ui.update {
             it.copy(
-                porTamanho = HashMap(porTamanho), porModeloTamanho = porModeloTamanho.mapValues { (_, v) -> HashMap(v) },
+                porTamanho = HashMap(porTamanho), lidasPorEan = HashMap(porEan), porModeloTamanho = porModeloTamanho.mapValues { (_, v) -> HashMap(v) },
                 porModelo = porModeloTamanho.mapValues { (_, v) -> v.values.sum() }, doModelo = doModelo.size, outros = outros, semCadastro = semCadastro,
                 modelos = modelosVistos.size, unicos = classificados.size, leituras = buffer.leituras, console = console.toList(),
             )
         }
+    }
+
+    // --- Estoque da loja × picking × RFID (só Revisão de UM modelo) ---
+    private val _loja = MutableStateFlow<LojaUi?>(null)
+    val loja: StateFlow<LojaUi?> = _loja
+
+    fun abrirLoja() = consultarLoja(null)
+
+    fun fecharLoja() { _loja.value = null }
+
+    /** Consulta (ou refaz) o estoque da loja. [aviso] aparece no topo da tela pronta (ex.: estoque mudou). */
+    fun consultarLoja(aviso: String?) {
+        val resumo = _ui.value.resumo ?: return
+        val body = montarConsultaLoja(resumo, _ui.value.lidasPorEan)
+        _loja.value = LojaUi.Carregando
+        viewModelScope.launch {
+            _loja.value = runCatching { Graph.api.consultarEstoqueLoja(body) }
+                .fold({ LojaUi.Pronto(it, aviso) }, { LojaUi.Erro(erroLoja(it)) })
+        }
+    }
+
+    fun substituirLoja() {
+        val atual = _loja.value as? LojaUi.Pronto ?: return
+        val dto = atual.dto
+        _loja.value = LojaUi.Substituindo(dto)
+        viewModelScope.launch {
+            runCatching { Graph.api.substituirEstoqueLoja(dto.produto.id, montarSubstituirLoja(dto, Graph.upload.dispositivoId)) }
+                .onSuccess { _loja.value = LojaUi.Substituido }
+                .onFailure { e ->
+                    if (e is ApiException && e.status == 409 && e.codigo == "estoque_mudou") consultarLoja("O estoque mudou na loja desde a consulta. Consulte de novo.")
+                    else _loja.value = LojaUi.Pronto(dto, erroLoja(e))
+                }
+        }
+    }
+
+    private fun erroLoja(e: Throwable): String = when {
+        e is ApiException && e.status == 403 -> "Sem permissão pra substituir o estoque (precisa de loja:manage)"
+        e is ApiException && e.status == 404 && e.codigo == "produto_nao_encontrado" -> "Produto não encontrado no Nexus."
+        e is ApiException && e.status == 409 && e.codigo == "sem_vinculo_shopify" -> "Produto sem vínculo com a Shopify."
+        e is ApiException && e.status == 409 && e.codigo == "estoque_mudou" -> "O estoque mudou na loja desde a consulta. Consulte de novo."
+        e is ApiException && e.codigo == "shopify_indisponivel" -> e.mensagem ?: "Shopify indisponível. Tente de novo."
+        else -> e.mensagemCurta()
     }
 
     /** Apaga só as linhas desta (origem, referência) e zera a vista. */
@@ -341,7 +395,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
             trava.withLock {
                 buffer.zerar()
                 dao.apagar(alvo.origem, alvo.referencia)
-                classificados.clear(); doModelo.clear(); modelosVistos.clear(); porTamanho.clear(); porModeloTamanho.clear(); console.clear()
+                classificados.clear(); doModelo.clear(); modelosVistos.clear(); porTamanho.clear(); porEan.clear(); porModeloTamanho.clear(); console.clear()
                 outros = 0; semCadastro = 0
                 publicar()
             }
@@ -472,6 +526,7 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     var sairDepoisDeSalvar by remember { mutableStateOf(false) }
     var pastaFechada by remember { mutableStateOf<String?>(null) }
     val pastas by vm.pastas.collectAsState()
+    val loja by vm.loja.collectAsState()
     val envioVivo = ui.estadoEnvio is EstadoEnvio.Enviando || ui.estadoEnvio is EstadoEnvio.SemRede
     val abrirSeletor = { vm.carregarPastas(); seletor = true }
 
@@ -479,6 +534,16 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
     LaunchedEffect(vm) { vm.pastaFechada.collect { pastaFechada = it } }
     val tentarSair = { if (ui.aSalvar > 0) confirmaSaida = true else vm.sair(voltar) }
     BackHandler(onBack = tentarSair)
+
+    // A tela da loja é um estado desta tela (a leitura segue viva no ViewModel); o BackHandler dela vence o de cima.
+    val lojaAtual = loja
+    if (lojaAtual != null && resumo != null) {
+        EstoqueLojaTela(
+            resumo = resumo, estado = lojaAtual,
+            aoAtualizar = { vm.consultarLoja(null) }, aoSubstituir = vm::substituirLoja, aoFechar = vm::fecharLoja,
+        )
+        return
+    }
 
     Column(Modifier.fillMaxSize().background(Fundo)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -581,6 +646,22 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit) {
             salvarHabilitado = ui.aSalvar > 0 && !envioVivo,
             salvando = ui.estadoEnvio is EstadoEnvio.Enviando,
             indicador = { IndicadorEnvio(ui.lidas + ui.naoGravadas, ui.enviadas, ui.aSalvar, ui.estadoEnvio, ui.semPasta) },
+            conteudoExtra = if (alvo is AlvoLeitura.Modelos && alvo.chaves.size == 1) {
+                {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        OutlinedButton(
+                            onClick = vm::abrirLoja,
+                            enabled = !lendo && ui.doModelo > 0 && resumo != null,
+                            border = BorderStroke(1.dp, Borda),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Texto, disabledContentColor = TextoFraco),
+                        ) {
+                            Icon(Icons.Outlined.ShoppingBag, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("LOJA", style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                }
+            } else null,
         )
     }
 
