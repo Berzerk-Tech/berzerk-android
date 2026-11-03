@@ -28,6 +28,7 @@ import br.com.berzerk.coletor.ui.telas.ConferenciaScreen
 import br.com.berzerk.coletor.ui.telas.ConfigScreen
 import br.com.berzerk.coletor.ui.telas.FacialScreen
 import br.com.berzerk.coletor.ui.telas.AlvoLeitura
+import br.com.berzerk.coletor.ui.telas.HistoricoEstoqueLojaScreen
 import br.com.berzerk.coletor.ui.telas.HomeScreen
 import br.com.berzerk.coletor.ui.telas.InventarioListaScreen
 import br.com.berzerk.coletor.ui.telas.InventarioSessaoScreen
@@ -56,6 +57,7 @@ object Rotas {
     const val REVISAO_VARIOS = "revisao-varios"
     const val REVISAO_MODELO = "revisao/{chave}"
     const val LEITURA = "leitura"
+    const val ESTOQUE_LOJA_HISTORICO = "estoque-loja/historico"
     const val CONFIG = "config"
     const val IMPRESSAO = "impressao"
     const val IMPRESSAO_PRODUTO = "impressao/p/{chave}"
@@ -151,6 +153,7 @@ fun App() {
                     voltar = { nav.popBackStack() },
                     irConfig = { nav.navigate(Rotas.CONFIG) },
                     irLeitura = { nav.navigate(Rotas.LEITURA) },
+                    irHistorico = { nav.navigate(Rotas.ESTOQUE_LOJA_HISTORICO) },
                     abrirModelo = { nav.navigate(Rotas.revisaoModelo(it)) },
                     lerSelecionados = { SelecaoRevisao.guardar(it); nav.navigate(Rotas.REVISAO_VARIOS) },
                 )
@@ -161,13 +164,14 @@ fun App() {
                 if (chaves.isEmpty()) {
                     LaunchedEffect(Unit) { nav.popBackStack() }
                 } else {
-                    LeituraColetorScreen(AlvoLeitura.Modelos.de(chaves), voltar = { nav.popBackStack() })
+                    LeituraColetorScreen(AlvoLeitura.Modelos.de(chaves), voltar = { nav.popBackStack() }, aoAbrirHistorico = { nav.navigate(Rotas.ESTOQUE_LOJA_HISTORICO) })
                 }
             }
             composable(Rotas.REVISAO_MODELO) { entrada ->
                 val chave = entrada.arguments?.getString("chave") ?: return@composable
-                RevisaoModeloScreen(chave = chave, voltar = { nav.popBackStack() })
+                RevisaoModeloScreen(chave = chave, voltar = { nav.popBackStack() }, aoAbrirHistorico = { nav.navigate(Rotas.ESTOQUE_LOJA_HISTORICO) })
             }
+            composable(Rotas.ESTOQUE_LOJA_HISTORICO) { HistoricoEstoqueLojaScreen(voltar = { nav.popBackStack() }) }
             composable(Rotas.LEITURA) { LeituraScreen(voltar = { nav.popBackStack() }) }
             composable(Rotas.INVENTARIO) {
                 InventarioListaScreen(

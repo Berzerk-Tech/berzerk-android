@@ -94,6 +94,9 @@ interface NexusApi {
     @POST("revisao-rfid/estoque-loja/{produtoId}/substituir")
     suspend fun substituirEstoqueLoja(@Path("produtoId") produtoId: String, @Body body: SubstituirEstoqueLojaBody): SubstituirEstoqueLojaResponse
 
+    @GET("revisao-rfid/estoque-loja/historico")
+    suspend fun historicoEstoqueLoja(@Query("limite") limite: Int = 50, @Query("dispositivo") dispositivo: String? = null): HistoricoEstoqueLojaDto
+
     // --- operador (reconhecimento facial; Bearer do aparelho, sem token de operador ainda) ---
     @Multipart
     @POST("android/operador/identificar")

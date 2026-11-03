@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -82,6 +83,7 @@ fun EstoqueLojaTela(
     aoAtualizar: () -> Unit,
     aoSubstituir: () -> Unit,
     aoFechar: () -> Unit,
+    aoAbrirHistorico: () -> Unit = {},
 ) {
     var confirmando by remember { mutableStateOf(false) }
     BackHandler(onBack = aoFechar)
@@ -99,6 +101,7 @@ fun EstoqueLojaTela(
                     }
                     Text("Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
                 }
+                IconButton(onClick = aoAbrirHistorico, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.History, contentDescription = "Histórico", tint = TextoFraco) }
                 if (estado is LojaUi.Pronto || estado is LojaUi.Erro) {
                     IconButton(onClick = aoAtualizar, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Atualizar", tint = TextoFraco) }
                 }

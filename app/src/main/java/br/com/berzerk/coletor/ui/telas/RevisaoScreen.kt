@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -213,7 +214,7 @@ class RevisaoViewModel : ViewModel() {
 }
 
 @Composable
-fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Unit, abrirModelo: (String) -> Unit, lerSelecionados: (List<String>) -> Unit) {
+fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Unit, irHistorico: () -> Unit, abrirModelo: (String) -> Unit, lerSelecionados: (List<String>) -> Unit) {
     val vm: RevisaoViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -231,6 +232,7 @@ fun RevisaoScreen(voltar: () -> Unit, irConfig: () -> Unit, irLeitura: () -> Uni
                         .clickable(enabled = !ocupado) { Graph.itag.iniciar() }.padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) { Text(if (ocupado) "Sync…" else "Sync", style = MaterialTheme.typography.labelLarge, color = if (ocupado) TextoFraco else Texto) }
+                IconButton(onClick = irHistorico) { Icon(Icons.Outlined.History, contentDescription = "Histórico de estoque da loja", tint = Texto) }
                 IconButton(onClick = irConfig) { Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = Texto) }
             }
         })

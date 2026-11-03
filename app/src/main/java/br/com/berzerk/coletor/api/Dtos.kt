@@ -424,3 +424,26 @@ data class VarianteSubstituidaDto(val varianteId: String = "", val quantidade: I
 
 @Serializable
 data class SubstituirEstoqueLojaResponse(val variantes: List<VarianteSubstituidaDto> = emptyList())
+
+// --- Histórico das substituições (revisao-rfid/estoque-loja/historico) ---
+
+@Serializable
+data class VarianteHistoricoDto(val tamanho: String? = null, val de: Int? = null, val para: Int? = null)
+
+@Serializable
+data class SubstituicaoHistoricoDto(
+    val id: String = "",
+    val em: String = "",
+    val produto: ProdutoLojaDto = ProdutoLojaDto(),
+    val ator: String? = null,
+    val dispositivo: String? = null,
+    val lidas: Int = 0,
+    val picking: Int = 0,
+    val margemPct: Int = 0,
+    val variantes: List<VarianteHistoricoDto> = emptyList(),
+    val totalDe: Int = 0,
+    val totalPara: Int = 0,
+)
+
+@Serializable
+data class HistoricoEstoqueLojaDto(val itens: List<SubstituicaoHistoricoDto> = emptyList())
