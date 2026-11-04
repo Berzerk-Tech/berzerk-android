@@ -83,7 +83,7 @@ fun EstoqueLojaTela(
     aoAtualizar: () -> Unit,
     aoSubstituir: () -> Unit,
     aoFechar: () -> Unit,
-    aoAbrirHistorico: () -> Unit = {},
+    aoAbrirHistorico: (produtoId: String?) -> Unit = {},
 ) {
     var confirmando by remember { mutableStateOf(false) }
     BackHandler(onBack = aoFechar)
@@ -101,7 +101,8 @@ fun EstoqueLojaTela(
                     }
                     Text("Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
                 }
-                IconButton(onClick = aoAbrirHistorico, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.History, contentDescription = "Histórico", tint = TextoFraco) }
+                val produtoId = ((estado as? LojaUi.Pronto)?.dto ?: (estado as? LojaUi.Substituindo)?.dto)?.produto?.id?.takeIf { it.isNotBlank() }
+                IconButton(onClick = { aoAbrirHistorico(produtoId) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.History, contentDescription = "Histórico deste modelo", tint = TextoFraco) }
                 if (estado is LojaUi.Pronto || estado is LojaUi.Erro) {
                     IconButton(onClick = aoAtualizar, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Atualizar", tint = TextoFraco) }
                 }
