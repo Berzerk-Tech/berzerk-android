@@ -510,7 +510,7 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
  * Salvar agora / Sair mesmo assim / Ficar.
  */
 @Composable
-fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, aoAbrirHistorico: () -> Unit = {}) {
+fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, aoAbrirHistorico: (produtoId: String?) -> Unit = {}) {
     val vm: LeituraColetorViewModel = viewModel(
         key = "leitura:${alvo.origem}:${alvo.referencia}",
         factory = viewModelFactory { initializer { LeituraColetorViewModel(alvo) } },
