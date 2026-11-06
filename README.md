@@ -47,7 +47,12 @@ O botão ▶ da tela faz o mesmo.
   Serve o sled **RFD40** por Bluetooth num **TC22**: pareie o sled no Bluetooth
   do Android, abra o app e toque na linha do leitor na Home (ou Config →
   Trocar leitor) pra escolher "Zebra RFD40". O gatilho do sled liga a leitura;
-  parar é pela tela, igual ao Urovo.
+  parar é pela tela, igual ao Urovo. A potência é por leitor (Urovo 26 dBm,
+  RFD40 no máximo que ele reporta) e o card "Ajustes do RFD40" em Config afina
+  sessão Gen2 (padrão S1), população esperada (100), DPO e perfil de link —
+  o padrão de fábrica do sled (S0, 30 tags) é pra poucas peças. O SDK só fala
+  com o sled por Bluetooth ou cabo USB (`ENUM_TRANSPORT.ALL`); o Wi-Fi do
+  RFD40 Premium+ é pra ele mandar leituras direto pra nuvem da Zebra, não pro app.
 
 ## Desenvolvimento
 

@@ -5,9 +5,11 @@ import android.util.Log
 import br.com.berzerk.coletor.impressora.bluetoothLigado
 import br.com.berzerk.coletor.impressora.temPermissaoBluetooth
 import com.zebra.rfid.api3.BEEPER_VOLUME
+import com.zebra.rfid.api3.DYNAMIC_POWER_OPTIMIZATION
 import com.zebra.rfid.api3.ENUM_TRANSPORT
 import com.zebra.rfid.api3.ENUM_TRIGGER_MODE
 import com.zebra.rfid.api3.HANDHELD_TRIGGER_EVENT_TYPE
+import com.zebra.rfid.api3.INVENTORY_STATE
 import com.zebra.rfid.api3.InvalidUsageException
 import com.zebra.rfid.api3.OperationFailureException
 import com.zebra.rfid.api3.RFIDReader
@@ -15,6 +17,8 @@ import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.RfidEventsListener
 import com.zebra.rfid.api3.RfidReadEvents
 import com.zebra.rfid.api3.RfidStatusEvents
+import com.zebra.rfid.api3.SESSION
+import com.zebra.rfid.api3.SL_FLAG
 import com.zebra.rfid.api3.START_TRIGGER_TYPE
 import com.zebra.rfid.api3.STATUS_EVENT_TYPE
 import com.zebra.rfid.api3.STOP_TRIGGER_TYPE
@@ -24,6 +28,27 @@ import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+
+/**
+ * Ajustes finos do RFD40 que o Urovo não expõe (Config → Leitor → "Ajustes do RFD40"). O padrão de
+ * fábrica do sled (sessão S0, população 30) é pra poucas tags; o CD lê centenas por vez, então o
+ * app sobe pra S1/100 e deixa o operador afinar. Guardado em `Prefs.ajustesZebra`.
+ */
+data class AjustesZebra(
+    /** Sessão Gen2 (0..3): por quanto tempo uma tag já lida fica calada. S0 = responde sem parar; S1 = ~1 s; S2/S3 = até sair do campo. */
+    val sessao: Int = 1,
+    /** Quantas tags o leitor espera no campo (ajusta o Q inicial do anticolisão). */
+    val populacao: Int = 100,
+    /** DPO: o sled baixa a potência sozinho quando as tags respondem forte (poupa bateria). */
+    val dpo: Boolean = true,
+    /** Índice na tabela de perfis de link (modulação/taxa) do leitor; nulo = padrão de fábrica. */
+    val perfilLink: Int? = null,
+) {
+    companion object {
+        val SESSOES = listOf(0, 1, 2, 3)
+        val POPULACOES = listOf(30, 100, 300, 1000)
+    }
+}
 
 /**
  * Sled Zebra RFD40 pelo SDK oficial (RFIDAPI3, `com.zebra.rfid.api3`), por Bluetooth clássico:
@@ -48,6 +73,13 @@ class ZebraLeitor(private val eventos: EventosRfid) : LeitorRfid, RfidEventsList
 
     /** Endereço (mac) que o operador escolheu; sem escolha, o primeiro pareado. */
     @Volatile var enderecoPreferido: String? = null
+
+    /** Ajustes finos em vigor (`Prefs.ajustesZebra`): aplicados na conexão e em [aplicarAjustes]. */
+    @Volatile var ajustes = AjustesZebra()
+
+    private val _perfisLink = MutableStateFlow<List<String>>(emptyList())
+    /** Perfis de link que o leitor conectado oferece, na ordem da tabela do SDK (índice = `AjustesZebra.perfilLink`). */
+    val perfisLink: StateFlow<List<String>> = _perfisLink
 
     private val exec: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "zebra-rfid").apply { isDaemon = true } }
     @Volatile private var readers: Readers? = null
@@ -128,9 +160,53 @@ class ZebraLeitor(private val eventos: EventosRfid) : LeitorRfid, RfidEventsList
         val max = niveis.lastOrNull() ?: 0
         escala = when { max > 1000 -> 100; max > 100 -> 10; else -> 1 }
         if (max > 0) eventos.potenciaMax(this, (max / escala).coerceAtLeast(5))
+        _perfisLink.value = lerPerfisLink(r)
+        // O que o sled trouxe de fábrica, pra comparar no logcat com o que aplicamos em seguida.
+        runCatching {
+            val s = r.Config.Antennas.getSingulationControl(1)
+            val rf = r.Config.Antennas.getAntennaRfConfig(1)
+            Log.i(TAG, "zebra de fábrica: modelo=${r.ReaderCapabilities.modelName} antenas=${r.ReaderCapabilities.numAntennaSupported} niveis=${niveis.firstOrNull()}..$max sessao=${s.session} pop=${s.tagPopulation} dpo=${r.Config.getDPOState()} perfil=${rf.getrfModeTableIndex()} potIdx=${rf.transmitPowerIndex}")
+        }.onFailure { Log.w(TAG, "diagnóstico: ${descrever(it)}") }
         eventos.potenciaDesejada?.let { aplicarPotenciaAgora(r, it) }
+        aplicarAjustesAgora(r, ajustes)
         aplicarBeep(r, eventos.beepDesejado)
     }
+
+    /** Troca os ajustes finos (sessão/população/DPO/perfil) e aplica no sled se estiver conectado. */
+    fun aplicarAjustes(a: AjustesZebra) {
+        ajustes = a
+        val r = reader ?: return
+        exec.execute { aplicarAjustesAgora(r, a) }
+    }
+
+    private fun aplicarAjustesAgora(r: RFIDReader, a: AjustesZebra) {
+        runCatching {
+            val s = r.Config.Antennas.getSingulationControl(1)
+            s.session = when (a.sessao) { 0 -> SESSION.SESSION_S0; 2 -> SESSION.SESSION_S2; 3 -> SESSION.SESSION_S3; else -> SESSION.SESSION_S1 }
+            s.tagPopulation = a.populacao.coerceIn(1, 32767).toShort()
+            s.Action.inventoryState = INVENTORY_STATE.INVENTORY_STATE_A
+            s.Action.setSLFlag(SL_FLAG.SL_ALL)
+            r.Config.Antennas.setSingulationControl(1, s)
+        }.onFailure { Log.w(TAG, "singulation(S${a.sessao}, ${a.populacao}): ${descrever(it)}") }
+        runCatching { r.Config.setDPOState(if (a.dpo) DYNAMIC_POWER_OPTIMIZATION.ENABLE else DYNAMIC_POWER_OPTIMIZATION.DISABLE) }
+            .onFailure { Log.w(TAG, "dpo(${a.dpo}): ${descrever(it)}") }
+        val perfil = a.perfilLink
+        if (perfil != null) runCatching {
+            val cfg = r.Config.Antennas.getAntennaRfConfig(1)
+            cfg.setrfModeTableIndex(perfil.toLong())
+            r.Config.Antennas.setAntennaRfConfig(1, cfg)
+        }.onFailure { Log.w(TAG, "perfilLink($perfil): ${descrever(it)}") }
+        Log.i(TAG, "zebra ajustes: sessao=S${a.sessao} populacao=${a.populacao} dpo=${a.dpo} perfil=${perfil ?: "fábrica"}")
+    }
+
+    /** Tabela de perfis de link do leitor (modulação · taxa · Tari), como texto pro seletor. */
+    private fun lerPerfisLink(r: RFIDReader): List<String> = runCatching {
+        val tabela = r.ReaderCapabilities.RFModes.getRFModeTableInfo(0)
+        (0 until tabela.length()).map { i ->
+            val e = tabela.getRFModeTableEntryInfo(i)
+            "${e.modulation.toString().removePrefix("MV_")} · ${e.bdrValue / 1000} kbps · Tari ${e.minTariValue / 1000}–${e.maxTariValue / 1000} µs"
+        }
+    }.getOrElse { Log.w(TAG, "rfmodes: ${descrever(it)}"); emptyList() }
 
     override fun comecar(): Boolean {
         val r = reader ?: return false

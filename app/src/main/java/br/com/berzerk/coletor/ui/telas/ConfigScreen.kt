@@ -1,5 +1,6 @@
 package br.com.berzerk.coletor.ui.telas
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,10 +30,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.rfid.AjustesZebra
 import br.com.berzerk.coletor.rfid.RfidReader
+import br.com.berzerk.coletor.rfid.TipoLeitor
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
+import br.com.berzerk.coletor.ui.comum.ChipCategoria
 import br.com.berzerk.coletor.ui.comum.LinhaInfo
 import br.com.berzerk.coletor.ui.comum.Rotulo
 import br.com.berzerk.coletor.ui.comum.SeletorLeitorDialog
@@ -54,7 +58,8 @@ fun ConfigScreen(voltar: () -> Unit) {
     val escopo = androidx.compose.runtime.rememberCoroutineScope()
     var avisoSaida by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val prefs = Graph.prefs
-    val potencia by prefs.potencia.collectAsState()
+    val tipoLeitor by RfidReader.tipo.collectAsState()
+    val potencia by prefs.potencia(tipoLeitor).collectAsState()
     val beep by prefs.beep.collectAsState()
     val potenciaMax by RfidReader.potenciaMax.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -76,7 +81,6 @@ fun ConfigScreen(voltar: () -> Unit) {
                 Column {
                     Rotulo("Leitor")
                     Spacer(Modifier.height(8.dp))
-                    val tipoLeitor by RfidReader.tipo.collectAsState()
                     val estadoLeitor by RfidReader.estado.collectAsState()
                     val zebraConectado by RfidReader.zebra.conectado.collectAsState()
                     var escolhendoLeitor by remember { mutableStateOf(false) }
@@ -89,10 +93,10 @@ fun ConfigScreen(voltar: () -> Unit) {
                     Text("Potência: $potencia dBm (máx. $potenciaMax)", color = Texto)
                     Slider(
                         value = potencia.toFloat(), valueRange = 5f..potenciaMax.toFloat(), steps = (potenciaMax - 5 - 1).coerceAtLeast(0),
-                        onValueChange = { prefs.setPotencia(it.toInt()) },
-                        onValueChangeFinished = { RfidReader.setPotencia(prefs.potencia.value) },
+                        onValueChange = { prefs.setPotencia(tipoLeitor, it.toInt()) },
+                        onValueChangeFinished = { RfidReader.setPotencia(prefs.potencia(tipoLeitor).value) },
                     )
-                    Text("Menos potência = lê só o que está perto (bom pra conferir uma caixa). Mais = alcance maior.", color = TextoFraco)
+                    Text("Menos potência = lê só o que está perto (bom pra conferir uma caixa). Mais = alcance maior. Cada leitor guarda a sua.", color = TextoFraco)
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Bipe ao ler", color = Texto)
@@ -100,6 +104,7 @@ fun ConfigScreen(voltar: () -> Unit) {
                     }
                 }
             }
+            if (tipoLeitor == TipoLeitor.ZEBRA) AjustesZebraCartao()
             Cartao {
                 Column {
                     Rotulo("Base de etiquetas (iTag)")
@@ -164,5 +169,71 @@ fun ConfigScreen(voltar: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Ajustes finos do RFD40 (o Urovo não expõe): sessão Gen2, população esperada, DPO e perfil de link.
+ * Cada toque salva e aplica no sled na hora.
+ */
+@Composable
+private fun AjustesZebraCartao() {
+    val prefs = Graph.prefs
+    val ajustes by prefs.ajustesZebra.collectAsState()
+    val perfis by RfidReader.zebra.perfisLink.collectAsState()
+    fun aplicar(novo: AjustesZebra) = RfidReader.ajustesZebra(novo)
+
+    Cartao {
+        Column {
+            Rotulo("Ajustes do RFD40")
+            Spacer(Modifier.height(8.dp))
+            Text("Sessão", color = Texto)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AjustesZebra.SESSOES.forEach { s -> ChipCategoria("S$s", selecionado = ajustes.sessao == s) { aplicar(ajustes.copy(sessao = s)) } }
+            }
+            Text(
+                when (ajustes.sessao) {
+                    0 -> "S0: cada tag responde sem parar. Rápido com poucas peças; com muitas, o leitor fica preso nas mesmas."
+                    1 -> "S1: tag lida fica calada por ~1 s e volta. Equilíbrio pra contar centenas de peças."
+                    2 -> "S2: tag lida fica calada até sair do campo. Melhor cobertura em pilhas grandes; a contagem não se repete sozinha."
+                    else -> "S3: igual à S2, em outra memória da tag (use se outro leitor estiver usando a S2 por perto)."
+                },
+                color = TextoFraco,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Peças esperadas no campo", color = Texto)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AjustesZebra.POPULACOES.forEach { n -> ChipCategoria("$n", selecionado = ajustes.populacao == n) { aplicar(ajustes.copy(populacao = n)) } }
+            }
+            Text("Chute do tamanho da pilha: o sled começa o anticolisão já no tamanho certo. Errar pra mais custa pouco.", color = TextoFraco)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Potência dinâmica (DPO)", color = Texto)
+                    Text("O sled baixa a potência sozinho quando as tags estão perto. Desligue pra forçar a potência fixa.", color = TextoFraco)
+                }
+                Switch(checked = ajustes.dpo, onCheckedChange = { aplicar(ajustes.copy(dpo = it)) })
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Perfil de link", color = Texto)
+            LinhaPerfil("Padrão de fábrica", selecionado = ajustes.perfilLink == null) { aplicar(ajustes.copy(perfilLink = null)) }
+            if (perfis.isEmpty()) Text("A lista vem do sled quando ele conecta.", color = TextoFraco)
+            perfis.forEachIndexed { i, nome -> LinhaPerfil("$i · $nome", selecionado = ajustes.perfilLink == i) { aplicar(ajustes.copy(perfilLink = i)) } }
+            Text("Modulação e taxa do rádio. Miller (M4/M8) aguenta mais tags juntas; FM0 é o mais rápido com poucas.", color = TextoFraco)
+        }
+    }
+}
+
+@Composable
+private fun LinhaPerfil(texto: String, selecionado: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.RadioButton(
+            selected = selecionado, onClick = onClick,
+            colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Verde, unselectedColor = TextoFraco),
+        )
+        Text(texto, color = Texto, modifier = Modifier.padding(start = 4.dp))
     }
 }

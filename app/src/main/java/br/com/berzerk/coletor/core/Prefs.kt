@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import br.com.berzerk.coletor.rfid.AjustesZebra
+import br.com.berzerk.coletor.rfid.TipoLeitor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -117,6 +119,36 @@ class Prefs(context: Context) {
         _potencia.value = dbm
     }
 
+    /** Potência do RFD40, separada da do Urovo: o sled vai no máximo dele por padrão (30 dBm). */
+    private val _potenciaZebra = MutableStateFlow(prefs.getInt(K_POTENCIA_ZEBRA, POTENCIA_ZEBRA_PADRAO))
+    val potenciaZebra: StateFlow<Int> = _potenciaZebra
+    fun setPotenciaZebra(dbm: Int) {
+        prefs.edit().putInt(K_POTENCIA_ZEBRA, dbm).apply()
+        _potenciaZebra.value = dbm
+    }
+
+    /** Potência salva pro leitor em uso (cada hardware tem a sua). */
+    fun potencia(tipo: TipoLeitor): StateFlow<Int> = if (tipo == TipoLeitor.ZEBRA) potenciaZebra else potencia
+    fun setPotencia(tipo: TipoLeitor, dbm: Int) = if (tipo == TipoLeitor.ZEBRA) setPotenciaZebra(dbm) else setPotencia(dbm)
+
+    private val _ajustesZebra = MutableStateFlow(
+        AjustesZebra(
+            sessao = prefs.getInt(K_ZEBRA_SESSAO, 1),
+            populacao = prefs.getInt(K_ZEBRA_POPULACAO, 100),
+            dpo = prefs.getBoolean(K_ZEBRA_DPO, true),
+            perfilLink = prefs.getInt(K_ZEBRA_PERFIL, -1).takeIf { it >= 0 },
+        ),
+    )
+    /** Ajustes finos do RFD40 (sessão, população, DPO, perfil de link). */
+    val ajustesZebra: StateFlow<AjustesZebra> = _ajustesZebra
+    fun setAjustesZebra(a: AjustesZebra) {
+        prefs.edit()
+            .putInt(K_ZEBRA_SESSAO, a.sessao).putInt(K_ZEBRA_POPULACAO, a.populacao)
+            .putBoolean(K_ZEBRA_DPO, a.dpo).putInt(K_ZEBRA_PERFIL, a.perfilLink ?: -1)
+            .apply()
+        _ajustesZebra.value = a
+    }
+
     private val _beep = MutableStateFlow(prefs.getBoolean(K_BEEP, true))
     val beep: StateFlow<Boolean> = _beep
     fun setBeep(v: Boolean) {
@@ -191,7 +223,13 @@ class Prefs(context: Context) {
         private const val K_IMP_AGRUPAR = "impressora_agrupar_linhas"
         private const val K_IMP_QTD = "impressao_qtd_por_toque"
         private const val K_POTENCIA = "potencia_dbm"
+        private const val K_POTENCIA_ZEBRA = "potencia_zebra_dbm"
+        private const val K_ZEBRA_SESSAO = "zebra_sessao"
+        private const val K_ZEBRA_POPULACAO = "zebra_populacao"
+        private const val K_ZEBRA_DPO = "zebra_dpo"
+        private const val K_ZEBRA_PERFIL = "zebra_perfil_link"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26
+        const val POTENCIA_ZEBRA_PADRAO = 30
     }
 }
