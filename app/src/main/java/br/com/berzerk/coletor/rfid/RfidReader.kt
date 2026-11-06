@@ -2,9 +2,7 @@ package br.com.berzerk.coletor.rfid
 
 import android.content.Context
 import android.util.Log
-import com.ubx.usdk.RFIDSDKManager
-import com.ubx.usdk.rfid.RfidManager
-import com.ubx.usdk.rfid.aidl.IRfidCallback
+import br.com.berzerk.coletor.core.Graph
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,15 +20,16 @@ sealed interface RfidEstado {
 data class Leitura(val epc: String, val rssi: Int, val em: Long = System.currentTimeMillis())
 
 /**
- * O módulo UHF do DT50 pelo SDK oficial da Urovo (`URFIDLibrary`, `com.ubx.usdk`):
- * `RFIDSDKManager.init` → `RfidManager.registerCallback` → `startInventory`/
- * `stopInventory`. Uma instância por processo; as telas só consomem `leituras`.
+ * Fachada única do leitor RFID: as telas só consomem [estado] e [leituras] e chamam
+ * [gatilho]/[parar]. Por baixo, um driver por hardware ([UrovoLeitor] = módulo interno do
+ * DT50; [ZebraLeitor] = sled RFD40 por Bluetooth), escolhido pelo operador ([selecionar]) e
+ * lembrado em `Prefs.leitorTipo`. Sem escolha salva, [TipoLeitor.padraoDoAparelho].
  *
- * O gatilho físico chega como KeyEvent na Activity (keycodes 523 e 515 nos
- * aparelhos da Urovo): apertar vira `gatilho(true)`; soltar não faz nada. Parar é só
- * pelo botão da tela (`gatilho(false)`).
+ * Gatilho físico: no Urovo chega como KeyEvent na Activity (keycodes 523 e 515); no Zebra
+ * vem do próprio SDK. Nos dois, apertar vira `gatilho(true)` e soltar não faz nada — parar é
+ * só pelo botão da tela (`gatilho(false)`).
  */
-object RfidReader {
+object RfidReader : EventosRfid {
     private const val TAG = "Rfid"
     /** Keycodes do gatilho/lateral nos Urovo (doc v2.25 §2.2.1): 523 = gatilho, 515 = PTT/esquerda. */
     val KEYCODES_GATILHO = setOf(523, 515, 520, 521, 522)
@@ -38,56 +37,73 @@ object RfidReader {
     private val _estado = MutableStateFlow<RfidEstado>(RfidEstado.Desligado)
     val estado: StateFlow<RfidEstado> = _estado
 
-    /** Toda tag lida, sem dedupe (o SDK repete a mesma tag várias vezes por segundo). */
+    /** Toda tag lida, sem dedupe (os SDKs repetem a mesma tag várias vezes por segundo). */
     private val _leituras = MutableSharedFlow<Leitura>(extraBufferCapacity = 8192, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val leituras: SharedFlow<Leitura> = _leituras
 
     private val _potenciaMax = MutableStateFlow(33)
     val potenciaMax: StateFlow<Int> = _potenciaMax
 
-    @Volatile private var gatilhoApertado = false
-    private var potenciaDesejada: Int? = null
-    private var beepDesejado = true
+    private val _tipo = MutableStateFlow(TipoLeitor.UROVO)
+    /** Leitor em uso (o escolhido/salvo; resolvido no primeiro [iniciar]). */
+    val tipo: StateFlow<TipoLeitor> = _tipo
 
-    private val callback = object : IRfidCallback {
-        override fun onInventoryTag(epc: String?, data: String?, rssi: Int) {
-            val limpo = epc?.trim()?.uppercase() ?: return
-            if (limpo.isEmpty()) return
-            _leituras.tryEmit(Leitura(limpo, rssi))
-        }
-        override fun onInventoryTagEnd() {
-            if (_estado.value is RfidEstado.Lendo && !gatilhoApertado) _estado.value = RfidEstado.Pronto
-        }
+    /** Driver do sled Zebra (lista de pareados / conectado), pro seletor de leitor. */
+    val zebra: ZebraLeitor by lazy { ZebraLeitor(this) }
+    private val urovo: UrovoLeitor by lazy { UrovoLeitor(this) }
+
+    @Volatile private var driver: LeitorRfid? = null
+    @Volatile private var gatilhoApertado = false
+    @Volatile override var potenciaDesejada: Int? = null; private set
+    @Volatile override var beepDesejado = true; private set
+
+    private fun driverDe(t: TipoLeitor): LeitorRfid = when (t) {
+        TipoLeitor.UROVO -> urovo
+        TipoLeitor.ZEBRA -> zebra.also { z -> z.enderecoPreferido = Graph.prefs.leitorZebraEndereco }
     }
 
-    private val manager: RfidManager? get() = runCatching { RFIDSDKManager.getInstance().rfidManager }.getOrNull()
-
     fun iniciar(context: Context) {
+        val d = driver ?: run {
+            val t = TipoLeitor.de(Graph.prefs.leitorTipo) ?: TipoLeitor.padraoDoAparelho()
+            _tipo.value = t
+            driverDe(t).also { driver = it }
+        }
         val atual = _estado.value
         if (atual is RfidEstado.Iniciando || atual is RfidEstado.Pronto || atual is RfidEstado.Lendo) return
-        _estado.value = RfidEstado.Iniciando
-        try {
-            RFIDSDKManager.getInstance().init(context.applicationContext) { ok ->
-                if (!ok) {
-                    _estado.value = RfidEstado.Erro("Módulo RFID não respondeu. Este aparelho é um Urovo com UHF?")
-                    return@init
-                }
-                val m = manager
-                if (m == null) {
-                    _estado.value = RfidEstado.Erro("SDK iniciou sem RfidManager.")
-                    return@init
-                }
-                runCatching { m.registerCallback(callback) }.onFailure { Log.w(TAG, "registerCallback", it) }
-                runCatching { m.getSupportMaxOutputPower().takeIf { it > 0 }?.let { _potenciaMax.value = it } }
-                potenciaDesejada?.let { aplicarPotencia(it) }
-                runCatching { m.setBeepEnable(beepDesejado) }
-                _estado.value = RfidEstado.Pronto
-                Log.i(TAG, "pronto: fw=${runCatching { m.firmwareVersion }.getOrNull()} max=${_potenciaMax.value} dBm")
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "init", e)
-            _estado.value = RfidEstado.Erro("Falha ao iniciar o SDK: ${e.message ?: e.javaClass.simpleName}")
-        }
+        if (d is ZebraLeitor) d.lembrarContexto(context)
+        d.iniciar(context)
+    }
+
+    /** Troca o hardware de leitura (e lembra a escolha). Mesmo tipo já ativo = só garante conexão. */
+    fun selecionar(t: TipoLeitor, context: Context) {
+        Graph.prefs.leitorTipo = t.chave
+        val atual = driver
+        if (atual != null && atual.tipo == t) { iniciar(context); return }
+        Log.i(TAG, "trocando leitor ${atual?.tipo} → $t")
+        atual?.liberar()
+        gatilhoApertado = false
+        _estado.value = RfidEstado.Desligado
+        _potenciaMax.value = 33
+        _tipo.value = t
+        driver = driverDe(t)
+        iniciar(context)
+    }
+
+    /** Escolhe qual RFD40 pareado usar (endereço Bluetooth) e reconecta. */
+    fun selecionarZebra(endereco: String, context: Context) {
+        Graph.prefs.leitorZebraEndereco = endereco
+        zebra.enderecoPreferido = endereco
+        if (driver?.tipo == TipoLeitor.ZEBRA) reconectar(context) else selecionar(TipoLeitor.ZEBRA, context)
+    }
+
+    /** Derruba e sobe o driver atual (botão "Tentar de novo"). */
+    fun reconectar(context: Context) {
+        val d = driver ?: run { iniciar(context); return }
+        d.liberar()
+        gatilhoApertado = false
+        _estado.value = RfidEstado.Desligado
+        if (d is ZebraLeitor) d.lembrarContexto(context)
+        d.iniciar(context)
     }
 
     /** Gatilho físico (só `true`) ou botão LER/PARAR da tela. Ligar com a leitura já ligada é no-op. */
@@ -97,47 +113,61 @@ object RfidReader {
     }
 
     fun comecar(): Boolean {
-        val m = manager ?: return false
+        val d = driver ?: return false
         if (_estado.value is RfidEstado.Lendo) return true
         if (_estado.value !is RfidEstado.Pronto) return false
-        val r = runCatching { m.startInventory() }.getOrDefault(-1)
-        if (r == 0) {
-            _estado.value = RfidEstado.Lendo
-            return true
-        }
-        Log.w(TAG, "startInventory=$r")
-        return false
+        if (!d.comecar()) return false
+        _estado.value = RfidEstado.Lendo
+        return true
     }
 
     fun parar() {
-        val m = manager ?: return
-        runCatching { m.stopInventory() }
+        driver?.parar()
         if (_estado.value is RfidEstado.Lendo) _estado.value = RfidEstado.Pronto
     }
 
     fun setPotencia(dbm: Int) {
         potenciaDesejada = dbm
-        if (_estado.value is RfidEstado.Pronto || _estado.value is RfidEstado.Lendo) aplicarPotencia(dbm)
+        if (_estado.value is RfidEstado.Pronto || _estado.value is RfidEstado.Lendo) driver?.aplicarPotencia(dbm)
     }
 
     fun setBeep(ligado: Boolean) {
         beepDesejado = ligado
-        runCatching { manager?.setBeepEnable(ligado) }
+        driver?.setBeep(ligado)
     }
 
-    private fun aplicarPotencia(dbm: Int) {
-        val m = manager ?: return
-        val alvo = dbm.coerceIn(5, _potenciaMax.value)
-        val r = runCatching { m.setOutputPower(alvo) }.getOrDefault(-1)
-        if (r != 0) Log.w(TAG, "setOutputPower($alvo)=$r")
-    }
-
-    fun potenciaAtual(): Int? = runCatching { manager?.outputPower }.getOrNull()?.takeIf { it > 0 }
+    fun potenciaAtual(): Int? = driver?.potenciaAtual()
 
     fun liberar() {
-        parar()
-        runCatching { manager?.unregisterCallback() }
-        runCatching { RFIDSDKManager.getInstance().release() }
+        driver?.liberar()
+        gatilhoApertado = false
         _estado.value = RfidEstado.Desligado
+    }
+
+    // ---- EventosRfid (chamados pelos drivers, em qualquer thread) ----
+
+    override fun estado(origem: LeitorRfid, e: RfidEstado) {
+        if (origem !== driver) return
+        _estado.value = e
+    }
+
+    override fun leitura(origem: LeitorRfid, epc: String, rssi: Int) {
+        if (origem !== driver) return
+        _leituras.tryEmit(Leitura(epc, rssi))
+    }
+
+    override fun potenciaMax(origem: LeitorRfid, dbm: Int) {
+        if (origem !== driver) return
+        _potenciaMax.value = dbm
+    }
+
+    override fun gatilhoFisico(origem: LeitorRfid, apertado: Boolean) {
+        if (origem !== driver) return
+        if (apertado) gatilho(true)
+    }
+
+    override fun leituraTerminou(origem: LeitorRfid) {
+        if (origem !== driver) return
+        if (_estado.value is RfidEstado.Lendo && !gatilhoApertado) _estado.value = RfidEstado.Pronto
     }
 }
