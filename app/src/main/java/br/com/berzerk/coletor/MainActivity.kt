@@ -19,7 +19,6 @@ class MainActivity : ComponentActivity() {
         // Coletor de mão: a tela nunca apaga enquanto o app está na frente (o operador lê sem tocar na tela).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
-        RfidReader.setPotencia(Graph.prefs.potencia.value)
         RfidReader.setBeep(Graph.prefs.beep.value)
         RfidReader.iniciar(this)
         setContent { BerzerkTheme { App() } }

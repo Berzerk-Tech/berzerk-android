@@ -23,7 +23,8 @@ data class Leitura(val epc: String, val rssi: Int, val em: Long = System.current
  * Fachada única do leitor RFID: as telas só consomem [estado] e [leituras] e chamam
  * [gatilho]/[parar]. Por baixo, um driver por hardware ([UrovoLeitor] = módulo interno do
  * DT50; [ZebraLeitor] = sled RFD40 por Bluetooth), escolhido pelo operador ([selecionar]) e
- * lembrado em `Prefs.leitorTipo`. Sem escolha salva, [TipoLeitor.padraoDoAparelho].
+ * lembrado em `Prefs.leitorTipo`. Sem escolha salva, [TipoLeitor.padraoDoAparelho]. A potência é
+ * por leitor (`Prefs.potencia(tipo)`): o Urovo roda a 26 dBm, o RFD40 no máximo dele.
  *
  * Gatilho físico: no Urovo chega como KeyEvent na Activity (keycodes 523 e 515); no Zebra
  * vem do próprio SDK. Nos dois, apertar vira `gatilho(true)` e soltar não faz nada — parar é
@@ -59,13 +60,17 @@ object RfidReader : EventosRfid {
 
     private fun driverDe(t: TipoLeitor): LeitorRfid = when (t) {
         TipoLeitor.UROVO -> urovo
-        TipoLeitor.ZEBRA -> zebra.also { z -> z.enderecoPreferido = Graph.prefs.leitorZebraEndereco }
+        TipoLeitor.ZEBRA -> zebra.also { z ->
+            z.enderecoPreferido = Graph.prefs.leitorZebraEndereco
+            z.ajustes = Graph.prefs.ajustesZebra.value
+        }
     }
 
     fun iniciar(context: Context) {
         val d = driver ?: run {
             val t = TipoLeitor.de(Graph.prefs.leitorTipo) ?: TipoLeitor.padraoDoAparelho()
             _tipo.value = t
+            potenciaDesejada = Graph.prefs.potencia(t).value
             driverDe(t).also { driver = it }
         }
         val atual = _estado.value
@@ -85,8 +90,15 @@ object RfidReader : EventosRfid {
         _estado.value = RfidEstado.Desligado
         _potenciaMax.value = 33
         _tipo.value = t
+        potenciaDesejada = Graph.prefs.potencia(t).value
         driver = driverDe(t)
         iniciar(context)
+    }
+
+    /** Ajustes finos do RFD40 (Config): salva e aplica no sled se ele for o leitor em uso. */
+    fun ajustesZebra(a: AjustesZebra) {
+        Graph.prefs.setAjustesZebra(a)
+        if (driver?.tipo == TipoLeitor.ZEBRA) zebra.aplicarAjustes(a) else zebra.ajustes = a
     }
 
     /** Escolhe qual RFD40 pareado usar (endereço Bluetooth) e reconecta. */
