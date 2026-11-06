@@ -50,7 +50,7 @@ android {
         buildConfigField("String", "COGNITO_LOGOUT_URI", "\"berzerkrfid://auth/logout\"")
 
         ndk {
-            // O aar da Urovo traz libs nativas pra armeabi, armeabi-v7a e arm64-v8a.
+            // O aar da Urovo traz libs nativas pra armeabi, armeabi-v7a e arm64-v8a; o da Zebra também tem x86 (fora).
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
     }
@@ -103,6 +103,8 @@ android {
 dependencies {
     // SDK UHF da Urovo (oficial, github.com/UrovoSdkCenter/RFID_Android). Proprietário; ver README.
     implementation(files("libs/URFIDLibrary-v2.6.0609.aar"))
+    // SDK RFID da Zebra (RFIDAPI3 2.0.5.224, `com.zebra.rfid.api3`) pro RFD40 por Bluetooth. Proprietário; ver README.
+    implementation(fileTree("libs/zebra") { include("*.aar") })
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

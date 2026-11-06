@@ -35,6 +35,8 @@ import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.Cartao
 import br.com.berzerk.coletor.ui.comum.LinhaInfo
 import br.com.berzerk.coletor.ui.comum.Rotulo
+import br.com.berzerk.coletor.ui.comum.SeletorLeitorDialog
+import br.com.berzerk.coletor.ui.comum.descreverLeitor
 import br.com.berzerk.coletor.ui.theme.Ambar
 import br.com.berzerk.coletor.ui.theme.Texto
 import br.com.berzerk.coletor.ui.theme.TextoFraco
@@ -74,6 +76,16 @@ fun ConfigScreen(voltar: () -> Unit) {
                 Column {
                     Rotulo("Leitor")
                     Spacer(Modifier.height(8.dp))
+                    val tipoLeitor by RfidReader.tipo.collectAsState()
+                    val estadoLeitor by RfidReader.estado.collectAsState()
+                    val zebraConectado by RfidReader.zebra.conectado.collectAsState()
+                    var escolhendoLeitor by remember { mutableStateOf(false) }
+                    LinhaInfo("Aparelho", tipoLeitor.rotulo + (zebraConectado?.let { " · ${it.nome}" } ?: ""))
+                    val (corLeitor, textoLeitor) = descreverLeitor(estadoLeitor, tipoLeitor)
+                    LinhaInfo("Estado", textoLeitor, corValor = corLeitor)
+                    TextButton(onClick = { escolhendoLeitor = true }) { Text("Trocar leitor", color = Texto) }
+                    if (escolhendoLeitor) SeletorLeitorDialog(aoFechar = { escolhendoLeitor = false })
+                    Spacer(Modifier.height(4.dp))
                     Text("Potência: $potencia dBm (máx. $potenciaMax)", color = Texto)
                     Slider(
                         value = potencia.toFloat(), valueRange = 5f..potenciaMax.toFloat(), steps = (potenciaMax - 5 - 1).coerceAtLeast(0),

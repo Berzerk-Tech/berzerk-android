@@ -35,6 +35,13 @@ import br.com.berzerk.coletor.auth.SessaoEstado
 import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.rfid.RfidEstado
+import br.com.berzerk.coletor.rfid.TipoLeitor
+import br.com.berzerk.coletor.impressora.PedirPermissaoBluetooth
+import br.com.berzerk.coletor.ui.comum.SeletorLeitorDialog
+import br.com.berzerk.coletor.ui.comum.descreverLeitor
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.Cabecalho
@@ -65,6 +72,7 @@ object MeCache {
 
 @Composable
 fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: () -> Unit, irImpressao: () -> Unit, irConfig: () -> Unit) {
+    val contexto = LocalContext.current
     val sessao by Graph.auth.sessao.collectAsState()
     val rfid by RfidReader.estado.collectAsState()
     val sync by Graph.itag.status.collectAsState()
@@ -93,21 +101,23 @@ fun HomeScreen(irRecebimento: () -> Unit, irRevisao: () -> Unit, irInventario: (
             },
         )
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val (corRfid, textoRfid) = when (val e = rfid) {
-                RfidEstado.Pronto, RfidEstado.Lendo -> Verde to "Leitor pronto"
-                RfidEstado.Iniciando -> Ambar to "Iniciando o leitor…"
-                RfidEstado.Desligado -> TextoFraco to "Leitor desligado"
-                is RfidEstado.Erro -> Vermelho to e.motivo
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val tipoLeitor by RfidReader.tipo.collectAsState()
+            var escolhendoLeitor by remember { mutableStateOf(false) }
+            val (corRfid, textoRfid) = descreverLeitor(rfid, tipoLeitor)
+            // Toque na linha do leitor = trocar de leitor (Urovo interno × Zebra RFD40).
+            Row(Modifier.fillMaxWidth().clickable { escolhendoLeitor = true }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Ponto(corRfid)
                 Spacer(Modifier.width(8.dp))
                 val base = if (sync.totalLocal == 0L) "base não baixada" else "base ${formatarInteiro(sync.totalLocal)}" + if (sync.rodando) " (atualizando…)" else ""
                 Text(
                     "$textoRfid · ${formatarInteiro(sync.modelos)} modelos · $base",
-                    style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 2,
+                    style = MaterialTheme.typography.bodySmall, color = TextoFraco, maxLines = 2, modifier = Modifier.weight(1f),
                 )
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.SwapHoriz, contentDescription = "Trocar leitor", tint = TextoFraco)
             }
+            if (tipoLeitor == TipoLeitor.ZEBRA) PedirPermissaoBluetooth(aoConceder = { RfidReader.iniciar(contexto) })
+            if (escolhendoLeitor) SeletorLeitorDialog(aoFechar = { escolhendoLeitor = false })
             if (erroMe != null) Text(erroMe!!, color = Vermelho)
             if (podeConferir == false) {
                 Cartao { Text("Sua conta ainda não tem acesso ao recebimento. Peça ao admin o papel coletor-recebimento no Nexus.", color = Ambar) }

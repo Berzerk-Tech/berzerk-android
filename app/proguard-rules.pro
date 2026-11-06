@@ -5,3 +5,8 @@
 -dontwarn android.device.**
 -dontwarn no.nordicsemi.android.dfu.**
 -keep class com.ubx.usdk.** { *; }
+# SDK RFID da Zebra: reflexão interna entre os módulos API3_*.
+-keep class com.zebra.rfid.** { *; }
+-keep class com.zebra.rfidhostlib.** { *; }
+-keep class com.zebra.rfidseriallib.** { *; }
+-dontwarn com.zebra.**

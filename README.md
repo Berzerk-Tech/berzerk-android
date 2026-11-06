@@ -1,6 +1,6 @@
 # Berzerk Coletor (Android)
 
-App oficial do coletor RFID do CD (Urovo DT50, Android). Fala só com o **Nexus**
+App oficial do coletor RFID do CD (Urovo DT50 ou Zebra TC22 + sled RFD40, Android). Fala só com o **Nexus**
 (`api-nexus.cloud.berzerk.com.br`): o operador entra com a conta Google
 @berzerk, confere o recebimento de lotes lendo as etiquetas UHF e manda
 leituras avulsas pra Revisão RFID. Substitui o app da iTag e o APK provisório
@@ -39,6 +39,15 @@ O botão ▶ da tela faz o mesmo.
 - **SDK da Urovo** (`app/libs/URFIDLibrary-v2.6.0609.aar`) é proprietário,
   redistribuído pela própria Urovo em
   [UrovoSdkCenter/RFID_Android](https://github.com/UrovoSdkCenter/RFID_Android).
+- **SDK da Zebra** (`app/libs/zebra/API3_*-2.0.5.224.aar` + `rfidhostlib`/
+  `rfidseriallib`, pacote `com.zebra.rfid.api3`) é o RFID SDK for Android da
+  Zebra, proprietário, tal como a Zebra o distribui no sample
+  [spoZebra/zebra-rfid-sled-sdk-sample](https://github.com/spoZebra/zebra-rfid-sled-sdk-sample)
+  (versões novas: [portal da Zebra](https://www.zebra.com/us/en/support-downloads/software/developer-tools/rfid-sdk-for-android.html)).
+  Serve o sled **RFD40** por Bluetooth num **TC22**: pareie o sled no Bluetooth
+  do Android, abra o app e toque na linha do leitor na Home (ou Config →
+  Trocar leitor) pra escolher "Zebra RFD40". O gatilho do sled liga a leitura;
+  parar é pela tela, igual ao Urovo.
 
 ## Desenvolvimento
 

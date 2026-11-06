@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <!-- SDK da Zebra (RFD40): o módulo FindIt declara minSdk 28; o app segue em 26 e só o usa num TC22 (Android 13+). -->
+    <uses-sdk tools:overrideLibrary="com.zebra.rfid.api3" />
     <!-- SDK da Urovo (porta serial do módulo UHF). -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />

@@ -52,6 +52,16 @@ class Prefs(context: Context) {
         get() = prefs.getString(K_REV_ULTIMA, null)?.takeIf { it.isNotBlank() }
         set(v) = prefs.edit().apply { if (v == null) remove(K_REV_ULTIMA) else putString(K_REV_ULTIMA, v) }.apply()
 
+    /** Hardware de leitura escolhido pelo operador (`TipoLeitor.chave`); nulo = padrão do aparelho. */
+    var leitorTipo: String?
+        get() = prefs.getString(K_LEITOR_TIPO, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().apply { if (v == null) remove(K_LEITOR_TIPO) else putString(K_LEITOR_TIPO, v) }.apply()
+
+    /** Endereço Bluetooth do RFD40 escolhido (nulo = primeiro pareado). Não é segredo. */
+    var leitorZebraEndereco: String?
+        get() = prefs.getString(K_LEITOR_ZEBRA, null)?.takeIf { it.isNotBlank() }
+        set(v) = prefs.edit().apply { if (v == null) remove(K_LEITOR_ZEBRA) else putString(K_LEITOR_ZEBRA, v) }.apply()
+
     /** Impressora Niimbot pareada (mac BLE e nome de exibição). Não são segredo. */
     var impressoraMac: String?
         get() = prefs.getString(K_IMP_MAC, null)?.takeIf { it.isNotBlank() }
@@ -168,6 +178,8 @@ class Prefs(context: Context) {
         private const val K_PASTAS_FECHADAS = "pastas_fechadas"
         private const val K_REV_CONJUNTOS = "revisao_conjuntos"
         private const val K_REV_ULTIMA = "revisao_ultima_referencia"
+        private const val K_LEITOR_TIPO = "leitor_tipo"
+        private const val K_LEITOR_ZEBRA = "leitor_zebra_endereco"
         private const val K_IMP_MAC = "impressora_mac"
         private const val K_IMP_NOME = "impressora_nome"
         private const val K_ETQ_LARGURA = "etiqueta_largura_mm"
