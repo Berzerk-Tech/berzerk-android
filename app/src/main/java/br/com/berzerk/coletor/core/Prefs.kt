@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import br.com.berzerk.coletor.rfid.AjustesUrovo
 import br.com.berzerk.coletor.rfid.AjustesZebra
 import br.com.berzerk.coletor.rfid.TipoLeitor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,6 +150,24 @@ class Prefs(context: Context) {
         _ajustesZebra.value = a
     }
 
+    private val _ajustesUrovo = MutableStateFlow(
+        AjustesUrovo(
+            cena = prefs.getInt(K_UROVO_CENA, -1).takeIf { it >= 0 },
+            sessao = prefs.getInt(K_UROVO_SESSAO, 1),
+            populacao = prefs.getInt(K_UROVO_POPULACAO, 100),
+            alvo = prefs.getInt(K_UROVO_ALVO, 0),
+        ),
+    )
+    /** Ajustes finos do DT50 (modo de cena; no personalizado, sessão/população/alvo). */
+    val ajustesUrovo: StateFlow<AjustesUrovo> = _ajustesUrovo
+    fun setAjustesUrovo(a: AjustesUrovo) {
+        prefs.edit()
+            .putInt(K_UROVO_CENA, a.cena ?: -1).putInt(K_UROVO_SESSAO, a.sessao)
+            .putInt(K_UROVO_POPULACAO, a.populacao).putInt(K_UROVO_ALVO, a.alvo)
+            .apply()
+        _ajustesUrovo.value = a
+    }
+
     private val _beep = MutableStateFlow(prefs.getBoolean(K_BEEP, true))
     val beep: StateFlow<Boolean> = _beep
     fun setBeep(v: Boolean) {
@@ -228,6 +247,10 @@ class Prefs(context: Context) {
         private const val K_ZEBRA_POPULACAO = "zebra_populacao"
         private const val K_ZEBRA_DPO = "zebra_dpo"
         private const val K_ZEBRA_PERFIL = "zebra_perfil_link"
+        private const val K_UROVO_CENA = "urovo_cena"
+        private const val K_UROVO_SESSAO = "urovo_sessao"
+        private const val K_UROVO_POPULACAO = "urovo_populacao"
+        private const val K_UROVO_ALVO = "urovo_alvo"
         private const val K_BEEP = "beep"
         const val POTENCIA_PADRAO = 26
         const val POTENCIA_ZEBRA_PADRAO = 30

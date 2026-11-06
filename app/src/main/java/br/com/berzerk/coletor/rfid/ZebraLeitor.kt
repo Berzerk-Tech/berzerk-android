@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import br.com.berzerk.coletor.impressora.bluetoothLigado
 import br.com.berzerk.coletor.impressora.temPermissaoBluetooth
+import com.zebra.rfid.api3.BATCH_MODE
 import com.zebra.rfid.api3.BEEPER_VOLUME
 import com.zebra.rfid.api3.DYNAMIC_POWER_OPTIMIZATION
 import com.zebra.rfid.api3.ENUM_TRANSPORT
@@ -13,6 +14,7 @@ import com.zebra.rfid.api3.INVENTORY_STATE
 import com.zebra.rfid.api3.InvalidUsageException
 import com.zebra.rfid.api3.OperationFailureException
 import com.zebra.rfid.api3.RFIDReader
+import com.zebra.rfid.api3.RFIDResults
 import com.zebra.rfid.api3.Readers
 import com.zebra.rfid.api3.RfidEventsListener
 import com.zebra.rfid.api3.RfidReadEvents
@@ -120,7 +122,18 @@ class ZebraLeitor(private val eventos: EventosRfid) : LeitorRfid, RfidEventsList
             val dev = lista.firstOrNull { it.address == enderecoPreferido } ?: lista.first()
             val r = dev.rfidReader
             Log.i(TAG, "zebra conectando em ${dev.name}")
-            if (!r.isConnected) r.connect()
+            if (!r.isConnected) {
+                try {
+                    r.connect()
+                } catch (e: OperationFailureException) {
+                    if (e.results != RFIDResults.RFID_BATCHMODE_IN_PROGRESS) throw e
+                    // O sled ficou lendo sozinho (batch mode) depois que o app caiu/desconectou no meio
+                    // da leitura. A conexão está de pé; é só mandar parar e descartar o que ele guardou.
+                    Log.w(TAG, "RFD40 estava lendo sozinho (batch mode); parando")
+                    runCatching { r.Actions.Inventory.stop() }.onFailure { Log.w(TAG, "batch stop: ${descrever(it)}") }
+                    runCatching { r.Actions.purgeTags() }
+                }
+            }
             if (liberado) { runCatching { r.disconnect() }; return } // trocaram de leitor no meio da conexão
             reader = r
             configurar(r)
@@ -148,6 +161,9 @@ class ZebraLeitor(private val eventos: EventosRfid) : LeitorRfid, RfidEventsList
         r.Events.setAttachTagDataWithReadEvent(false)
         runCatching { r.Events.setInventoryStopEvent(true) }
         runCatching { r.Events.setInventoryStartEvent(true) }
+        // Sem batch mode: se o app cair ou o Bluetooth soltar no meio da leitura, o sled PARA em vez
+        // de continuar lendo sozinho (e de recusar a próxima conexão com RFID_BATCHMODE_IN_PROGRESS).
+        runCatching { r.Config.setBatchMode(BATCH_MODE.DISABLE) }.onFailure { Log.w(TAG, "batchMode: ${descrever(it)}") }
         // Gatilho do sled no modo RFID (e não disparar o scanner de código de barras).
         runCatching { r.Config.setTriggerMode(ENUM_TRIGGER_MODE.RFID_MODE, true) }.onFailure { Log.w(TAG, "setTriggerMode", it) }
         // A leitura começa/para por comando nosso; o gatilho só avisa.

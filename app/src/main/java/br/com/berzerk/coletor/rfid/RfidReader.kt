@@ -59,7 +59,7 @@ object RfidReader : EventosRfid {
     @Volatile override var beepDesejado = true; private set
 
     private fun driverDe(t: TipoLeitor): LeitorRfid = when (t) {
-        TipoLeitor.UROVO -> urovo
+        TipoLeitor.UROVO -> urovo.also { u -> u.ajustes = Graph.prefs.ajustesUrovo.value }
         TipoLeitor.ZEBRA -> zebra.also { z ->
             z.enderecoPreferido = Graph.prefs.leitorZebraEndereco
             z.ajustes = Graph.prefs.ajustesZebra.value
@@ -93,6 +93,12 @@ object RfidReader : EventosRfid {
         potenciaDesejada = Graph.prefs.potencia(t).value
         driver = driverDe(t)
         iniciar(context)
+    }
+
+    /** Ajustes finos do DT50 (Config): salva e aplica no módulo se ele for o leitor em uso. */
+    fun ajustesUrovo(a: AjustesUrovo) {
+        Graph.prefs.setAjustesUrovo(a)
+        if (driver?.tipo == TipoLeitor.UROVO) urovo.aplicarAjustes(a) else urovo.ajustes = a
     }
 
     /** Ajustes finos do RFD40 (Config): salva e aplica no sled se ele for o leitor em uso. */
