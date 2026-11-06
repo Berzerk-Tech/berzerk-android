@@ -73,6 +73,12 @@ class MainActivity : ComponentActivity() {
         return super.onKeyUp(keyCode, event)
     }
 
+    /** App foi pro fundo (home, outro app, tela apagada): a leitura não pode continuar sem ninguém vendo. */
+    override fun onStop() {
+        RfidReader.parar()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         if (isFinishing) RfidReader.liberar()
         super.onDestroy()

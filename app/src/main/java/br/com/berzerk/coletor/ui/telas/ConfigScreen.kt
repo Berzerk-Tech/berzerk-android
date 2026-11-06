@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import br.com.berzerk.coletor.core.Config
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.rfid.AjustesUrovo
 import br.com.berzerk.coletor.rfid.AjustesZebra
 import br.com.berzerk.coletor.rfid.RfidReader
 import br.com.berzerk.coletor.rfid.TipoLeitor
@@ -104,7 +105,7 @@ fun ConfigScreen(voltar: () -> Unit) {
                     }
                 }
             }
-            if (tipoLeitor == TipoLeitor.ZEBRA) AjustesZebraCartao()
+            if (tipoLeitor == TipoLeitor.ZEBRA) AjustesZebraCartao() else AjustesUrovoCartao()
             Cartao {
                 Column {
                     Rotulo("Base de etiquetas (iTag)")
@@ -220,6 +221,49 @@ private fun AjustesZebraCartao() {
             if (perfis.isEmpty()) Text("A lista vem do sled quando ele conecta.", color = TextoFraco)
             perfis.forEachIndexed { i, nome -> LinhaPerfil("$i · $nome", selecionado = ajustes.perfilLink == i) { aplicar(ajustes.copy(perfilLink = i)) } }
             Text("Modulação e taxa do rádio. Miller (M4/M8) aguenta mais tags juntas; FM0 é o mais rápido com poucas.", color = TextoFraco)
+        }
+    }
+}
+
+/**
+ * Ajustes finos do DT50: modo de cena do SDK da Urovo e, no personalizado, sessão, alvo e
+ * população. "Como está" não manda nada pro módulo (comportamento de sempre).
+ */
+@Composable
+private fun AjustesUrovoCartao() {
+    val prefs = Graph.prefs
+    val ajustes by prefs.ajustesUrovo.collectAsState()
+    fun aplicar(novo: AjustesUrovo) = RfidReader.ajustesUrovo(novo)
+
+    Cartao {
+        Column {
+            Rotulo("Ajustes do DT50")
+            Spacer(Modifier.height(8.dp))
+            Text("Modo de leitura", color = Texto)
+            LinhaPerfil("Como está (padrão do módulo)", selecionado = ajustes.cena == null) { aplicar(ajustes.copy(cena = null)) }
+            AjustesUrovo.CENAS.forEach { (valor, rotulo) ->
+                LinhaPerfil(rotulo.first, selecionado = ajustes.cena == valor) { aplicar(ajustes.copy(cena = valor)) }
+            }
+            Text(AjustesUrovo.CENAS.firstOrNull { it.first == ajustes.cena }?.second?.second ?: "Mantém o que o módulo já tem; nada é enviado.", color = TextoFraco)
+            if (ajustes.personalizado) {
+                Spacer(Modifier.height(8.dp))
+                Text("Sessão", color = Texto)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AjustesZebra.SESSOES.forEach { s -> ChipCategoria("S$s", selecionado = ajustes.sessao == s) { aplicar(ajustes.copy(sessao = s)) } }
+                }
+                Text("S0 responde sem parar; S1 cala ~1 s; S2/S3 calam até sair do campo.", color = TextoFraco)
+                Spacer(Modifier.height(8.dp))
+                Text("Peças esperadas no campo", color = Texto)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AjustesZebra.POPULACOES.forEach { n -> ChipCategoria("$n", selecionado = ajustes.populacao == n) { aplicar(ajustes.copy(populacao = n)) } }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Alvo", color = Texto)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0 to "A", 1 to "B", 2 to "A/B").forEach { (v, r) -> ChipCategoria(r, selecionado = ajustes.alvo == v) { aplicar(ajustes.copy(alvo = v)) } }
+                }
+                Text("A/B alterna o lado da tag a cada rodada: tags já lidas voltam a responder sem esperar a sessão.", color = TextoFraco)
+            }
         }
     }
 }

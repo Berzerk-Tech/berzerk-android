@@ -50,7 +50,10 @@ O botão ▶ da tela faz o mesmo.
   parar é pela tela, igual ao Urovo. A potência é por leitor (Urovo 26 dBm,
   RFD40 no máximo que ele reporta) e o card "Ajustes do RFD40" em Config afina
   sessão Gen2 (padrão S1), população esperada (100), DPO e perfil de link —
-  o padrão de fábrica do sled (S0, 30 tags) é pra poucas peças. O SDK só fala
+  o padrão de fábrica do sled (S0, 30 tags) é pra poucas peças. No DT50 o card
+  "Ajustes do DT50" escolhe o modo de cena do SDK da Urovo (bateria, inventário
+  completo, releitura, equilibrado, contagem cíclica, alcance máximo) ou o
+  personalizado com sessão, população e alvo; "como está" não mexe no módulo. O SDK só fala
   com o sled por Bluetooth ou cabo USB (`ENUM_TRANSPORT.ALL`); o Wi-Fi do
   RFD40 Premium+ é pra ele mandar leituras direto pra nuvem da Zebra, não pro app.
 
