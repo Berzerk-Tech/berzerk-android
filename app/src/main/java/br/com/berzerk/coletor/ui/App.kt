@@ -176,7 +176,12 @@ fun App() {
                 Rotas.ESTOQUE_LOJA_HISTORICO,
                 arguments = listOf(navArgument("produtoId") { type = NavType.StringType; defaultValue = "" }),
             ) { entrada ->
-                HistoricoEstoqueLojaScreen(voltar = { nav.popBackStack() }, produtoId = entrada.arguments?.getString("produtoId")?.takeIf { it.isNotBlank() })
+                HistoricoEstoqueLojaScreen(
+                    voltar = { nav.popBackStack() },
+                    produtoId = entrada.arguments?.getString("produtoId")?.takeIf { it.isNotBlank() },
+                    // Reler: tira o histórico e qualquer leitura aberta por baixo (a leitura local do modelo foi zerada).
+                    aoReler = { chave -> nav.navigate(Rotas.revisaoModelo(chave)) { popUpTo(Rotas.REVISAO) } },
+                )
             }
             composable(Rotas.LEITURA) { LeituraScreen(voltar = { nav.popBackStack() }) }
             composable(Rotas.INVENTARIO) {
