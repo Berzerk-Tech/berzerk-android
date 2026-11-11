@@ -375,7 +375,13 @@ data class LidaEanDto(val ean: String, val qtd: Int)
 data class ConsultaEstoqueLojaBody(val lidas: List<LidaEanDto>, val margemPct: Int)
 
 @Serializable
-data class ProdutoLojaDto(val id: String = "", val nome: String = "", val imagemUrl: String? = null)
+data class ProdutoLojaDto(
+    val id: String = "",
+    val nome: String = "",
+    val imagemUrl: String? = null,
+    /** Só no histórico (Nexus ≥ 0.10.4): EANs das variantes, pra achar o modelo local e reler. */
+    val eans: List<String> = emptyList(),
+)
 
 @Serializable
 data class VarianteLojaDto(

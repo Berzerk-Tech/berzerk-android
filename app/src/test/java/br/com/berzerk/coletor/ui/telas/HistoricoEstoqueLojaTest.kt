@@ -80,3 +80,28 @@ class HistoricoEstoqueLojaResumoTest {
         assertEquals("+1.112", delta(0, 1112)); assertEquals("−12", delta(20, 8)); assertEquals("0", delta(5, 5))
     }
 }
+
+class HistoricoRelerTest {
+    private fun m(categoria: String, modelo: String, tamanho: String, ean: String, qtd: Int = 10) =
+        br.com.berzerk.coletor.data.ModeloEntity(categoria, modelo, tamanho, ean, qtd)
+
+    private val base = listOf(
+        m("Oversized", "Lettering - Off White", "P", "7890000000011"),
+        m("Oversized", "Lettering - Off White", "M", "7890000000012"),
+        m("Oversized", "Japanese Lettering", "P", "7890000000021"),
+    )
+
+    @Test fun achaPeloEanIgnorandoZeroAEsquerdaENome() {
+        assertEquals("oversized|lettering - off white", chaveDoProduto(listOf("07890000000011", "7890000000012"), "Nome qualquer", base))
+    }
+
+    @Test fun modeloComMaisEansCasadosVence() {
+        assertEquals("oversized|lettering - off white", chaveDoProduto(listOf("7890000000021", "7890000000011", "7890000000012"), "", base))
+    }
+
+    @Test fun semEanCaiNoNomeSoSeExistirNaBase() {
+        assertEquals("oversized|japanese lettering", chaveDoProduto(emptyList(), "Oversized - Japanese Lettering", base))
+        assertEquals(null, chaveDoProduto(emptyList(), "Oversized - Não Existe", base))
+        assertEquals(null, chaveDoProduto(listOf("7899999999999"), "Oversized - Não Existe", base))
+    }
+}

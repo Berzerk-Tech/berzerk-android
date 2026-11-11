@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
@@ -65,6 +66,9 @@ import br.com.berzerk.coletor.api.SubstituicaoHistoricoDto
 import br.com.berzerk.coletor.api.VarianteHistoricoDto
 import br.com.berzerk.coletor.api.mensagemCurta
 import br.com.berzerk.coletor.core.Graph
+import br.com.berzerk.coletor.data.ModeloEntity
+import br.com.berzerk.coletor.data.Origem
+import br.com.berzerk.coletor.data.chaveModelo
 import br.com.berzerk.coletor.data.parseNomeItag
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.ChipCategoria
@@ -107,6 +111,8 @@ data class HistoricoUi(
     /** Só existe quando a tela foi aberta de dentro de um modelo (botão LOJA). */
     val soEsteModelo: Boolean = false,
     val dia: LocalDate? = LocalDate.now(),
+    /** Aviso do "Reler" (modelo fora da base local). */
+    val aviso: String? = null,
 ) {
     val todos: Boolean get() = !soEsteAparelho && !soEsteModelo
 }
@@ -133,6 +139,27 @@ fun resumoVariantes(item: SubstituicaoHistoricoDto): String =
 /** Filtro local por produto: o Nexus só filtra por aparelho, então o "Só este modelo" é feito aqui sobre a página maior. */
 fun filtrarPorProduto(itens: List<SubstituicaoHistoricoDto>, produtoId: String?): List<SubstituicaoHistoricoDto> =
     if (produtoId.isNullOrBlank()) itens else itens.filter { it.produto.id == produtoId }
+
+private fun eanNormalizado(ean: String): String = ean.filter { it.isDigit() }.trimStart('0')
+
+/**
+ * Chave (`categoria|modelo`) do modelo LOCAL de um produto do histórico. O app não tem `produto_id`:
+ * casa pelos EANs que o Nexus manda (o modelo com mais EANs em comum vence); sem EAN (Nexus antigo)
+ * cai no nome, e só vale se o modelo existir na base. Nulo = não está na base iTag deste aparelho.
+ */
+fun chaveDoProduto(eans: List<String>, nome: String, modelos: List<ModeloEntity>): String? {
+    val alvo = eans.map(::eanNormalizado).filter { it.isNotEmpty() }.toSet()
+    if (alvo.isNotEmpty()) {
+        val porChave = modelos
+            .filter { eanNormalizado(it.ean13) in alvo }
+            .groupBy { chaveModelo(it.categoria, it.modelo) }
+            .mapValues { (_, ls) -> ls.map { eanNormalizado(it.ean13) }.toSet().size to ls.sumOf { it.qtd } }
+        porChave.entries.maxWithOrNull(compareBy({ it.value.first }, { it.value.second }))?.let { return it.key }
+    }
+    val (categoria, modelo) = parseNomeItag(nome, null)
+    val pelaNome = chaveModelo(categoria, modelo)
+    return pelaNome.takeIf { c -> modelos.any { chaveModelo(it.categoria, it.modelo) == c } }
+}
 
 fun emMs(iso: String): Long? = runCatching { Instant.parse(iso).toEpochMilli() }.getOrNull()
 
@@ -242,6 +269,24 @@ class HistoricoEstoqueLojaViewModel(private val produtoId: String?) : ViewModel(
         }
     }
 
+    fun limparAviso() { _ui.value = _ui.value.copy(aviso = null) }
+
+    /**
+     * Reler pra substituir de novo: acha o modelo local do produto, ZERA a leitura guardada dele neste
+     * aparelho (a contagem recomeça do zero) e abre a leitura; de lá é o LOJA → Substituir de sempre.
+     */
+    fun reler(item: SubstituicaoHistoricoDto, abrir: (String) -> Unit) {
+        viewModelScope.launch {
+            val chave = runCatching { chaveDoProduto(item.produto.eans, item.produto.nome, Graph.db.epcs().listarModelos()) }.getOrNull()
+            if (chave == null) {
+                _ui.value = _ui.value.copy(aviso = "Este produto não está na base de etiquetas deste aparelho. Sincronize a base (Config) e tente de novo.")
+                return@launch
+            }
+            runCatching { Graph.db.leituras().apagar(Origem.REVISAO, chave) }
+            abrir(chave)
+        }
+    }
+
     private fun aplicar() {
         val u = _ui.value
         val porModelo = if (u.soEsteModelo) filtrarPorProduto(brutos, produtoId) else brutos
@@ -258,7 +303,7 @@ class HistoricoEstoqueLojaViewModel(private val produtoId: String?) : ViewModel(
  * a lista abre filtrada nele ("Só este modelo"), e os chips permitem ver tudo.
  */
 @Composable
-fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null) {
+fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null, aoReler: (String) -> Unit = {}) {
     val vm: HistoricoEstoqueLojaViewModel = viewModel(
         key = "historico-loja:${produtoId.orEmpty()}",
         factory = viewModelFactory { initializer { HistoricoEstoqueLojaViewModel(produtoId) } },
@@ -266,6 +311,7 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null) {
     val ui by vm.ui.collectAsState()
     val temModelo = !produtoId.isNullOrBlank()
     var escolhendoDia by remember { mutableStateOf(false) }
+    var relendo by remember { mutableStateOf<SubstituicaoHistoricoDto?>(null) }
 
     Column(Modifier.fillMaxSize().background(Fundo)) {
         Cabecalho("Histórico", subtitulo = "Substituições de estoque da loja", aoVoltar = voltar, acao = {
@@ -309,7 +355,7 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null) {
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(ui.itens, key = { it.id }) { CartaoSubstituicao(it) }
+                items(ui.itens, key = { it.id }) { item -> CartaoSubstituicao(item, aoReler = { relendo = item }) }
                 item(key = "resumo") { CartaoResumo(resumir(ui.itens), subtituloResumo(ui)) }
                 item { Spacer(Modifier.navigationBarsPadding()) }
             }
@@ -318,6 +364,27 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null) {
 
     if (escolhendoDia) {
         DialogoDia(ui.dia, aoEscolher = { vm.escolherDia(it); escolhendoDia = false }, aoFechar = { escolhendoDia = false })
+    }
+    relendo?.let { item ->
+        AlertDialog(
+            onDismissRequest = { relendo = null },
+            containerColor = CorCartao,
+            title = { Text("Reler e substituir de novo?") },
+            text = {
+                Text("A contagem de ${parseNomeItag(item.produto.nome, null).second} neste aparelho recomeça do zero. Leia as peças de novo e toque em LOJA para substituir o estoque na Shopify com a leitura nova.")
+            },
+            confirmButton = { TextButton(onClick = { relendo = null; vm.reler(item, aoReler) }) { Text("Reler", color = Verde) } },
+            dismissButton = { TextButton(onClick = { relendo = null }) { Text("Cancelar", color = TextoFraco) } },
+        )
+    }
+    ui.aviso?.let { aviso ->
+        AlertDialog(
+            onDismissRequest = vm::limparAviso,
+            containerColor = CorCartao,
+            title = { Text("Modelo não encontrado") },
+            text = { Text(aviso) },
+            confirmButton = { TextButton(onClick = vm::limparAviso) { Text("OK", color = Texto) } },
+        )
     }
 }
 
@@ -385,7 +452,7 @@ private fun DialogoDia(atual: LocalDate?, aoEscolher: (LocalDate?) -> Unit, aoFe
 private fun corTendencia(t: Tendencia): Color = when (t) { Tendencia.SOBE -> Verde; Tendencia.DESCE -> Ambar; Tendencia.IGUAL -> Texto }
 
 @Composable
-private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto) {
+private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto, aoReler: () -> Unit) {
     val (categoria, modelo) = parseNomeItag(item.produto.nome, null)
     val esteAparelho = item.dispositivo != null && item.dispositivo == Graph.upload.dispositivoId
     val quando = emMs(item.em)?.let { tempoRelativo(it) } ?: "—"
@@ -406,6 +473,20 @@ private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto) {
         GradeAntesNovo(variantesVisiveis(item))
         LinhaTracejada()
         RodapeMono(listOf("lidas" to numero(item.lidas), "picking" to numero(item.picking), "margem" to "${item.margemPct}%"))
+        BotaoReler(aoReler)
+    }
+}
+
+@Composable
+private fun BotaoReler(onClick: () -> Unit) {
+    val forma = RoundedCornerShape(10.dp)
+    Row(
+        Modifier.fillMaxWidth().height(44.dp).clip(forma).background(Muted, forma).border(1.dp, Borda, forma).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(Icons.Default.Refresh, contentDescription = null, tint = Texto, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("RELER E SUBSTITUIR", style = MaterialTheme.typography.labelLarge, color = Texto, maxLines = 1)
     }
 }
 
