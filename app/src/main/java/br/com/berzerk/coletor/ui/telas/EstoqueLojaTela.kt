@@ -113,7 +113,7 @@ fun EstoqueLojaTela(
                         Text(modelo, style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     val dtoTopo = (estado as? LojaUi.Pronto)?.dto ?: (estado as? LojaUi.Substituindo)?.dto
-                    Text(if (dtoTopo?.recalculo != null) "Recálculo sem reler · leitura original × pedidos novos" else "Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                    Text(if (dtoTopo?.recalculo != null) "Recálculo sem reler · leitura original × picking de agora" else "Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
                 }
                 val produtoId = ((estado as? LojaUi.Pronto)?.dto ?: (estado as? LojaUi.Substituindo)?.dto)?.produto?.id?.takeIf { it.isNotBlank() }
                 if (aoAbrirHistorico != null) {
@@ -169,13 +169,13 @@ private fun Conteudo(dto: EstoqueLojaDto, aviso: String?) {
         CartaoLoja("Picking geral", "Nexus · picking do produto", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
     } else {
         val quando = emMs(recalculo.leituraEm)?.let { tempoRelativo(it) } ?: "—"
-        CartaoLoja("Leitura original", "Lidas − picking da época · $quando", dto.totais.lidas, dto.variantes, { it.lidas }, Ambar)
-        CartaoLoja("Pedidos novos", "Nexus · entraram depois da leitura", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
+        CartaoLoja("Peças lidas", "Leitura de $quando · sem o que já foi separado desde então", dto.totais.lidas, dto.variantes, { it.lidas }, Ambar)
+        CartaoLoja("Picking geral", "Nexus · picking de agora · ${recalculo.pedidosNovos} pçs em pedidos novos desde a leitura", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
     }
     CartaoLoja(
         "Peças total", "Novo estoque · ${dto.margemPct}% de margem", dto.totais.novo, dto.variantes, { it.novo }, Verde,
         badge = "=", destaque = true,
-        rodape = if (recalculo == null) "peças lidas − picking geral − ${dto.margemPct}%" else "leitura original − pedidos novos − ${dto.margemPct}%",
+        rodape = "peças lidas − picking geral − ${dto.margemPct}%",
     )
 }
 

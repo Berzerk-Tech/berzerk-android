@@ -561,7 +561,7 @@ private fun DialogoOpcoes(item: SubstituicaoHistoricoDto, aoRecalcular: () -> Un
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Opcao(
                     "RECALCULAR SEM RELER",
-                    if (item.recalculavel) "Aproveita esta leitura e desconta os pedidos que entraram depois dela. Mostra o novo estoque antes de substituir."
+                    if (item.recalculavel) "Aproveita esta leitura com o picking geral de agora. Mostra o novo estoque antes de substituir."
                     else "Indisponível nesta substituição (algum tamanho tinha mais picking que peças lidas, ou o Nexus ainda não suporta).",
                     habilitada = item.recalculavel, onClick = aoRecalcular,
                 )

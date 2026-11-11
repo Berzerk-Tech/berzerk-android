@@ -415,14 +415,14 @@ data class EstoqueLojaDto(
     val outrosProdutos: List<OutroProdutoLojaDto> = emptyList(),
     val consultadoEm: String = "",
     /**
-     * Só no RECÁLCULO de uma substituição do histórico (sem leitura nova): `lidas` de cada variante é o
-     * líquido da leitura original (lidas − picking da época) e `picking` são os pedidos que entraram depois.
+     * Só no RECÁLCULO de uma substituição do histórico (sem leitura nova): `picking` é o picking geral de
+     * agora e `lidas` é a leitura original já sem o que foi separado desde então (conta do Nexus).
      */
     val recalculo: RecalculoLojaDto? = null,
 )
 
 @Serializable
-data class RecalculoLojaDto(val auditoriaId: String = "", val leituraEm: String = "")
+data class RecalculoLojaDto(val auditoriaId: String = "", val leituraEm: String = "", val pedidosNovos: Int = 0)
 
 /** Lidas e picking por variante: vai na trilha pra dar pra recalcular depois sem reler. */
 @Serializable
