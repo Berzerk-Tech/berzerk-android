@@ -37,4 +37,18 @@ class EstoqueLojaTest {
         assertEquals(4, b.origem.picking)
         assertEquals("dev123", b.origem.dispositivo)
     }
+
+    @Test fun substituirLevaPorVarianteEORecalculoDeOrigem() {
+        val dto = EstoqueLojaDto(
+            variantes = listOf(
+                VarianteLojaDto(varianteId = "a", estoqueLoja = 10, lidas = 364, picking = 20, novo = 326),
+                VarianteLojaDto(varianteId = "b", estoqueLoja = null, lidas = 9, picking = 1, novo = 7),
+            ),
+            recalculo = br.com.berzerk.coletor.api.RecalculoLojaDto(auditoriaId = "aud-1", leituraEm = "2026-11-10T21:11:32Z"),
+        )
+        val b = montarSubstituirLoja(dto, "dev123")
+        assertEquals(listOf(Triple("a", 364, 20)), b.origem.porVariante!!.map { Triple(it.varianteId, it.lidas, it.picking) })
+        assertEquals("aud-1", b.origem.recalculoDe)
+        assertEquals(null, montarSubstituirLoja(dto.copy(recalculo = null), "dev123").origem.recalculoDe)
+    }
 }

@@ -414,13 +414,33 @@ data class EstoqueLojaDto(
     val eansNaoCasados: List<String> = emptyList(),
     val outrosProdutos: List<OutroProdutoLojaDto> = emptyList(),
     val consultadoEm: String = "",
+    /**
+     * Só no RECÁLCULO de uma substituição do histórico (sem leitura nova): `lidas` de cada variante é o
+     * líquido da leitura original (lidas − picking da época) e `picking` são os pedidos que entraram depois.
+     */
+    val recalculo: RecalculoLojaDto? = null,
 )
+
+@Serializable
+data class RecalculoLojaDto(val auditoriaId: String = "", val leituraEm: String = "")
+
+/** Lidas e picking por variante: vai na trilha pra dar pra recalcular depois sem reler. */
+@Serializable
+data class PorVarianteLojaDto(val varianteId: String, val lidas: Int, val picking: Int)
 
 @Serializable
 data class QuantidadeLojaDto(val varianteId: String, val quantidade: Int, val de: Int)
 
 @Serializable
-data class OrigemSubstituicaoDto(val lidas: Int, val picking: Int, val margemPct: Int, val dispositivo: String)
+data class OrigemSubstituicaoDto(
+    val lidas: Int,
+    val picking: Int,
+    val margemPct: Int,
+    val dispositivo: String,
+    // Com default nulo: só vão no JSON quando preenchidos (encodeDefaults = false, explicitNulls = false).
+    val porVariante: List<PorVarianteLojaDto>? = null,
+    val recalculoDe: String? = null,
+)
 
 @Serializable
 data class SubstituirEstoqueLojaBody(val quantidades: List<QuantidadeLojaDto>, val origem: OrigemSubstituicaoDto)
@@ -449,6 +469,10 @@ data class SubstituicaoHistoricoDto(
     val variantes: List<VarianteHistoricoDto> = emptyList(),
     val totalDe: Int = 0,
     val totalPara: Int = 0,
+    /** Nexus ≥ 0.10.6: dá pra recalcular com os pedidos de agora sem reler. */
+    val recalculavel: Boolean = false,
+    /** Esta substituição já foi um recálculo de outra. */
+    val recalculada: Boolean = false,
 )
 
 @Serializable

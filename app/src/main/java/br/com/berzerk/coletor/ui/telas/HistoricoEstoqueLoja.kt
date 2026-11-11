@@ -62,6 +62,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import br.com.berzerk.coletor.api.ApiException
 import br.com.berzerk.coletor.api.SubstituicaoHistoricoDto
 import br.com.berzerk.coletor.api.VarianteHistoricoDto
 import br.com.berzerk.coletor.api.mensagemCurta
@@ -69,6 +70,7 @@ import br.com.berzerk.coletor.core.Graph
 import br.com.berzerk.coletor.data.ModeloEntity
 import br.com.berzerk.coletor.data.Origem
 import br.com.berzerk.coletor.data.chaveModelo
+import br.com.berzerk.coletor.data.montarSubstituirLoja
 import br.com.berzerk.coletor.data.parseNomeItag
 import br.com.berzerk.coletor.ui.comum.Cabecalho
 import br.com.berzerk.coletor.ui.comum.ChipCategoria
@@ -271,6 +273,54 @@ class HistoricoEstoqueLojaViewModel(private val produtoId: String?) : ViewModel(
 
     fun limparAviso() { _ui.value = _ui.value.copy(aviso = null) }
 
+    // --- Recalcular sem reler: leitura original × pedidos que entraram depois (a conta é do Nexus) ---
+    private val _loja = MutableStateFlow<LojaUi?>(null)
+    val loja: StateFlow<LojaUi?> = _loja
+    private val _recalculando = MutableStateFlow<SubstituicaoHistoricoDto?>(null)
+    val recalculando: StateFlow<SubstituicaoHistoricoDto?> = _recalculando
+
+    fun recalcular(item: SubstituicaoHistoricoDto, aviso: String? = null) {
+        _recalculando.value = item
+        _loja.value = LojaUi.Carregando
+        viewModelScope.launch {
+            _loja.value = runCatching { Graph.api.recalculoEstoqueLoja(item.id) }
+                .fold({ LojaUi.Pronto(it, aviso) }, { LojaUi.Erro(erroRecalculo(it)) })
+        }
+    }
+
+    fun atualizarRecalculo() { _recalculando.value?.let { recalcular(it) } }
+
+    fun substituirRecalculo() {
+        val item = _recalculando.value ?: return
+        val dto = (_loja.value as? LojaUi.Pronto)?.dto ?: return
+        _loja.value = LojaUi.Substituindo(dto)
+        viewModelScope.launch {
+            runCatching { Graph.api.substituirEstoqueLoja(dto.produto.id, montarSubstituirLoja(dto, Graph.upload.dispositivoId)) }
+                .onSuccess { _loja.value = LojaUi.Substituido }
+                .onFailure { e ->
+                    if (e is ApiException && e.status == 409 && e.codigo == "estoque_mudou") recalcular(item, "O estoque mudou na loja desde a consulta. Confira de novo.")
+                    else _loja.value = LojaUi.Pronto(dto, erroRecalculo(e))
+                }
+        }
+    }
+
+    /** Fecha a tela do recálculo; depois de substituir, recarrega a lista (o card novo aparece). */
+    fun fecharRecalculo() {
+        val substituiu = _loja.value == LojaUi.Substituido
+        _loja.value = null
+        _recalculando.value = null
+        if (substituiu) carregar()
+    }
+
+    private fun erroRecalculo(e: Throwable): String = when {
+        e is ApiException && e.status == 409 && e.codigo == "recalculo_indisponivel" -> "Não dá pra recalcular esta substituição com segurança (algum tamanho tinha mais picking que peças lidas). Use Reler e substituir."
+        e is ApiException && e.status == 404 -> "Substituição não encontrada no Nexus (atualize o app/servidor e tente de novo)."
+        e is ApiException && e.status == 403 -> "Sem permissão pra substituir o estoque (precisa de loja:manage)"
+        e is ApiException && e.status == 409 && e.codigo == "sem_vinculo_shopify" -> "Produto sem vínculo com a Shopify."
+        e is ApiException && e.codigo == "shopify_indisponivel" -> e.mensagem ?: "Shopify indisponível. Tente de novo."
+        else -> e.mensagemCurta()
+    }
+
     /**
      * Reler pra substituir de novo: acha o modelo local do produto, ZERA a leitura guardada dele neste
      * aparelho (a contagem recomeça do zero) e abre a leitura; de lá é o LOJA → Substituir de sempre.
@@ -312,6 +362,21 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null, ao
     val temModelo = !produtoId.isNullOrBlank()
     var escolhendoDia by remember { mutableStateOf(false) }
     var relendo by remember { mutableStateOf<SubstituicaoHistoricoDto?>(null) }
+    var opcoesDe by remember { mutableStateOf<SubstituicaoHistoricoDto?>(null) }
+    val loja by vm.loja.collectAsState()
+    val recalculando by vm.recalculando.collectAsState()
+
+    // Recálculo aberto: a tela Estoque loja toma o lugar da lista (o BackHandler dela fecha).
+    val lojaAtual = loja
+    val itemRecalculo = recalculando
+    if (lojaAtual != null && itemRecalculo != null) {
+        val (categoria, modelo) = parseNomeItag(itemRecalculo.produto.nome, null)
+        EstoqueLojaTela(
+            categoria = categoria, modelo = modelo, imagemUrl = itemRecalculo.produto.imagemUrl, estado = lojaAtual,
+            aoAtualizar = vm::atualizarRecalculo, aoSubstituir = vm::substituirRecalculo, aoFechar = vm::fecharRecalculo,
+        )
+        return
+    }
 
     Column(Modifier.fillMaxSize().background(Fundo)) {
         Cabecalho("Histórico", subtitulo = "Substituições de estoque da loja", aoVoltar = voltar, acao = {
@@ -355,7 +420,7 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null, ao
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(ui.itens, key = { it.id }) { item -> CartaoSubstituicao(item, aoReler = { relendo = item }) }
+                items(ui.itens, key = { it.id }) { item -> CartaoSubstituicao(item, aoAbrir = { opcoesDe = item }) }
                 item(key = "resumo") { CartaoResumo(resumir(ui.itens), subtituloResumo(ui)) }
                 item { Spacer(Modifier.navigationBarsPadding()) }
             }
@@ -364,6 +429,14 @@ fun HistoricoEstoqueLojaScreen(voltar: () -> Unit, produtoId: String? = null, ao
 
     if (escolhendoDia) {
         DialogoDia(ui.dia, aoEscolher = { vm.escolherDia(it); escolhendoDia = false }, aoFechar = { escolhendoDia = false })
+    }
+    opcoesDe?.let { item ->
+        DialogoOpcoes(
+            item,
+            aoRecalcular = { opcoesDe = null; vm.recalcular(item) },
+            aoReler = { opcoesDe = null; relendo = item },
+            aoFechar = { opcoesDe = null },
+        )
     }
     relendo?.let { item ->
         AlertDialog(
@@ -452,13 +525,13 @@ private fun DialogoDia(atual: LocalDate?, aoEscolher: (LocalDate?) -> Unit, aoFe
 private fun corTendencia(t: Tendencia): Color = when (t) { Tendencia.SOBE -> Verde; Tendencia.DESCE -> Ambar; Tendencia.IGUAL -> Texto }
 
 @Composable
-private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto, aoReler: () -> Unit) {
+private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto, aoAbrir: () -> Unit) {
     val (categoria, modelo) = parseNomeItag(item.produto.nome, null)
     val esteAparelho = item.dispositivo != null && item.dispositivo == Graph.upload.dispositivoId
     val quando = emMs(item.em)?.let { tempoRelativo(it) } ?: "—"
-    val meta = listOfNotNull(quando, item.ator?.takeIf { it.isNotBlank() }, "este aparelho".takeIf { esteAparelho }).joinToString(" · ")
+    val meta = listOfNotNull(quando, item.ator?.takeIf { it.isNotBlank() }, "este aparelho".takeIf { esteAparelho }, "recálculo".takeIf { item.recalculada }).joinToString(" · ")
 
-    Moldura {
+    Moldura(aoClicar = aoAbrir) {
         Row(verticalAlignment = Alignment.Top) {
             FotoProduto(item.produto.imagemUrl, 56.dp)
             Spacer(Modifier.width(12.dp))
@@ -473,20 +546,43 @@ private fun CartaoSubstituicao(item: SubstituicaoHistoricoDto, aoReler: () -> Un
         GradeAntesNovo(variantesVisiveis(item))
         LinhaTracejada()
         RodapeMono(listOf("lidas" to numero(item.lidas), "picking" to numero(item.picking), "margem" to "${item.margemPct}%"))
-        BotaoReler(aoReler)
     }
 }
 
+/** Toque no card: o que fazer com aquela substituição. */
 @Composable
-private fun BotaoReler(onClick: () -> Unit) {
+private fun DialogoOpcoes(item: SubstituicaoHistoricoDto, aoRecalcular: () -> Unit, aoReler: () -> Unit, aoFechar: () -> Unit) {
+    val (_, modelo) = parseNomeItag(item.produto.nome, null)
+    AlertDialog(
+        onDismissRequest = aoFechar,
+        containerColor = CorCartao,
+        title = { Text(modelo.uppercase(), maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Opcao(
+                    "RECALCULAR SEM RELER",
+                    if (item.recalculavel) "Aproveita esta leitura e desconta os pedidos que entraram depois dela. Mostra o novo estoque antes de substituir."
+                    else "Indisponível nesta substituição (algum tamanho tinha mais picking que peças lidas, ou o Nexus ainda não suporta).",
+                    habilitada = item.recalculavel, onClick = aoRecalcular,
+                )
+                Opcao("RELER E SUBSTITUIR", "Zera a contagem deste modelo no aparelho e abre a leitura pra ler as peças de novo.", habilitada = true, onClick = aoReler)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = aoFechar) { Text("Fechar", color = TextoFraco) } },
+    )
+}
+
+@Composable
+private fun Opcao(titulo: String, descricao: String, habilitada: Boolean, onClick: () -> Unit) {
     val forma = RoundedCornerShape(10.dp)
-    Row(
-        Modifier.fillMaxWidth().height(44.dp).clip(forma).background(Muted, forma).border(1.dp, Borda, forma).clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+    Column(
+        Modifier.fillMaxWidth().clip(forma).background(Muted, forma).border(1.dp, Borda, forma)
+            .clickable(enabled = habilitada, onClick = onClick).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(Icons.Default.Refresh, contentDescription = null, tint = Texto, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("RELER E SUBSTITUIR", style = MaterialTheme.typography.labelLarge, color = Texto, maxLines = 1)
+        Text(titulo, style = MaterialTheme.typography.labelLarge, color = if (habilitada) Texto else TextoFraco)
+        Text(descricao, style = MaterialTheme.typography.bodySmall, color = TextoFraco)
     }
 }
 
@@ -514,10 +610,11 @@ private fun CartaoResumo(r: ResumoHistorico, subtitulo: String) {
 }
 
 @Composable
-private fun Moldura(destaque: Boolean = false, conteudo: @Composable () -> Unit) {
+private fun Moldura(destaque: Boolean = false, aoClicar: (() -> Unit)? = null, conteudo: @Composable () -> Unit) {
     val forma = RoundedCornerShape(RaioCartao)
     Column(
-        Modifier.fillMaxWidth().background(CorCartao, forma)
+        Modifier.fillMaxWidth().clip(forma).background(CorCartao, forma)
+            .then(if (aoClicar != null) Modifier.clickable(onClick = aoClicar) else Modifier)
             .border(if (destaque) 1.5.dp else 1.dp, if (destaque) Verde.copy(alpha = 0.6f) else Borda, forma)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

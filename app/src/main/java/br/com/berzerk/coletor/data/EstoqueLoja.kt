@@ -4,6 +4,7 @@ import br.com.berzerk.coletor.api.ConsultaEstoqueLojaBody
 import br.com.berzerk.coletor.api.EstoqueLojaDto
 import br.com.berzerk.coletor.api.LidaEanDto
 import br.com.berzerk.coletor.api.OrigemSubstituicaoDto
+import br.com.berzerk.coletor.api.PorVarianteLojaDto
 import br.com.berzerk.coletor.api.QuantidadeLojaDto
 import br.com.berzerk.coletor.api.SubstituirEstoqueLojaBody
 
@@ -20,5 +21,10 @@ fun montarConsultaLoja(resumo: ModeloResumo, lidasPorEan: Map<String, Int>, marg
 fun montarSubstituirLoja(dto: EstoqueLojaDto, dispositivo: String): SubstituirEstoqueLojaBody =
     SubstituirEstoqueLojaBody(
         quantidades = dto.variantes.mapNotNull { v -> v.estoqueLoja?.let { QuantidadeLojaDto(v.varianteId, v.novo, it) } },
-        origem = OrigemSubstituicaoDto(lidas = dto.totais.lidas, picking = dto.totais.picking, margemPct = dto.margemPct, dispositivo = dispositivo),
+        origem = OrigemSubstituicaoDto(
+            lidas = dto.totais.lidas, picking = dto.totais.picking, margemPct = dto.margemPct, dispositivo = dispositivo,
+            // Mesmas variantes de `quantidades`: é o que deixa o Nexus recalcular esta substituição depois sem reler.
+            porVariante = dto.variantes.filter { it.estoqueLoja != null }.map { PorVarianteLojaDto(it.varianteId, it.lidas, it.picking) },
+            recalculoDe = dto.recalculo?.auditoriaId?.takeIf { it.isNotBlank() },
+        ),
     )
