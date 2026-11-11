@@ -84,6 +84,19 @@ fun EstoqueLojaTela(
     aoSubstituir: () -> Unit,
     aoFechar: () -> Unit,
     aoAbrirHistorico: (produtoId: String?) -> Unit = {},
+) = EstoqueLojaTela(resumo.categoria, resumo.modelo, resumo.imagemUrl, estado, aoAtualizar, aoSubstituir, aoFechar, aoAbrirHistorico)
+
+/** Mesma tela sem o modelo local: é assim que o Histórico abre o RECÁLCULO de uma substituição ([aoAbrirHistorico] nulo esconde o ícone). */
+@Composable
+fun EstoqueLojaTela(
+    categoria: String,
+    modelo: String,
+    imagemUrl: String?,
+    estado: LojaUi,
+    aoAtualizar: () -> Unit,
+    aoSubstituir: () -> Unit,
+    aoFechar: () -> Unit,
+    aoAbrirHistorico: ((produtoId: String?) -> Unit)? = null,
 ) {
     var confirmando by remember { mutableStateOf(false) }
     BackHandler(onBack = aoFechar)
@@ -91,18 +104,21 @@ fun EstoqueLojaTela(
     Column(Modifier.fillMaxSize().background(Fundo)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                FotoProduto(resumo.imagemUrl, 56.dp)
+                FotoProduto(imagemUrl, 56.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        SeloCategoria(resumo.categoria)
+                        SeloCategoria(categoria)
                         Spacer(Modifier.width(8.dp))
-                        Text(resumo.modelo, style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(modelo, style = MaterialTheme.typography.headlineSmall, color = Texto, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    Text("Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                    val dtoTopo = (estado as? LojaUi.Pronto)?.dto ?: (estado as? LojaUi.Substituindo)?.dto
+                    Text(if (dtoTopo?.recalculo != null) "Recálculo sem reler · leitura original × pedidos novos" else "Estoque loja × picking × RFID", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
                 }
                 val produtoId = ((estado as? LojaUi.Pronto)?.dto ?: (estado as? LojaUi.Substituindo)?.dto)?.produto?.id?.takeIf { it.isNotBlank() }
-                IconButton(onClick = { aoAbrirHistorico(produtoId) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.History, contentDescription = "Histórico deste modelo", tint = TextoFraco) }
+                if (aoAbrirHistorico != null) {
+                    IconButton(onClick = { aoAbrirHistorico(produtoId) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.History, contentDescription = "Histórico deste modelo", tint = TextoFraco) }
+                }
                 if (estado is LojaUi.Pronto || estado is LojaUi.Erro) {
                     IconButton(onClick = aoAtualizar, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Atualizar", tint = TextoFraco) }
                 }
@@ -134,7 +150,7 @@ fun EstoqueLojaTela(
     }
 
     if (confirmando && estado is LojaUi.Pronto) {
-        DialogoSubstituir(resumo, estado.dto, aoCancelar = { confirmando = false }, aoConfirmar = { confirmando = false; aoSubstituir() })
+        DialogoSubstituir(categoria, modelo, estado.dto, aoCancelar = { confirmando = false }, aoConfirmar = { confirmando = false; aoSubstituir() })
     }
     if (estado == LojaUi.Substituido) Sucesso(aoFechar)
 }
@@ -147,11 +163,19 @@ private fun Conteudo(dto: EstoqueLojaDto, aviso: String?) {
     if (dto.outrosProdutos.isNotEmpty()) Text("EANs de outro produto ignorados: ${dto.outrosProdutos.joinToString { it.nome }}", color = TextoFraco, style = MaterialTheme.typography.bodySmall)
 
     CartaoLoja("Estoque loja", "Nexus · estoque atual da Shopify", dto.totais.estoqueLoja, dto.variantes, { it.estoqueLoja }, Texto)
-    CartaoLoja("Peças lidas", "Revisão RFID · esta leitura", dto.totais.lidas, dto.variantes, { it.lidas }, Ambar)
-    CartaoLoja("Picking geral", "Nexus · picking do produto", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
+    val recalculo = dto.recalculo
+    if (recalculo == null) {
+        CartaoLoja("Peças lidas", "Revisão RFID · esta leitura", dto.totais.lidas, dto.variantes, { it.lidas }, Ambar)
+        CartaoLoja("Picking geral", "Nexus · picking do produto", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
+    } else {
+        val quando = emMs(recalculo.leituraEm)?.let { tempoRelativo(it) } ?: "—"
+        CartaoLoja("Leitura original", "Lidas − picking da época · $quando", dto.totais.lidas, dto.variantes, { it.lidas }, Ambar)
+        CartaoLoja("Pedidos novos", "Nexus · entraram depois da leitura", dto.totais.picking, dto.variantes, { it.picking }, Texto, badge = "−")
+    }
     CartaoLoja(
         "Peças total", "Novo estoque · ${dto.margemPct}% de margem", dto.totais.novo, dto.variantes, { it.novo }, Verde,
-        badge = "=", destaque = true, rodape = "peças lidas − picking geral − ${dto.margemPct}%",
+        badge = "=", destaque = true,
+        rodape = if (recalculo == null) "peças lidas − picking geral − ${dto.margemPct}%" else "leitura original − pedidos novos − ${dto.margemPct}%",
     )
 }
 
@@ -199,14 +223,14 @@ private fun CartaoLoja(
 }
 
 @Composable
-private fun DialogoSubstituir(resumo: ModeloResumo, dto: EstoqueLojaDto, aoCancelar: () -> Unit, aoConfirmar: () -> Unit) {
+private fun DialogoSubstituir(categoria: String, modelo: String, dto: EstoqueLojaDto, aoCancelar: () -> Unit, aoConfirmar: () -> Unit) {
     val linhas = dto.variantes.filter { it.estoqueLoja != null }
     AlertDialog(
         onDismissRequest = aoCancelar,
         title = {
             Column {
                 Text("Substituir estoque da loja?")
-                Text("${resumo.categoria} - ${resumo.modelo} · Shopify", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                Text("$categoria - $modelo · Shopify", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
             }
         },
         text = {
