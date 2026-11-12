@@ -26,6 +26,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import br.com.berzerk.coletor.api.ApiException
 import br.com.berzerk.coletor.api.mensagemCurta
+import br.com.berzerk.coletor.data.MARGENS_PCT_LOJA
+import br.com.berzerk.coletor.data.MARGEM_PCT_LOJA
 import br.com.berzerk.coletor.data.montarConsultaLoja
 import br.com.berzerk.coletor.data.montarSubstituirLoja
 import androidx.compose.material3.AlertDialog
@@ -350,14 +352,28 @@ class LeituraColetorViewModel(private val alvo: AlvoLeitura) : ViewModel() {
     private val _loja = MutableStateFlow<LojaUi?>(null)
     val loja: StateFlow<LojaUi?> = _loja
 
-    fun abrirLoja() = consultarLoja(null)
+    /** Margem escolhida na tela da loja: só do ViewModel (cada abertura volta pro padrão) e sobrevive a atualizar/409. */
+    private var margemLoja = MARGEM_PCT_LOJA
+
+    fun abrirLoja() {
+        margemLoja = MARGEM_PCT_LOJA
+        consultarLoja(null)
+    }
+
+    /** Troca a margem e refaz a consulta no Nexus (o app não recalcula `novo`). */
+    fun mudarMargemLoja(pct: Int) {
+        if (pct !in MARGENS_PCT_LOJA || pct == margemLoja) return
+        if (_loja.value is LojaUi.Carregando || _loja.value is LojaUi.Substituindo) return
+        margemLoja = pct
+        consultarLoja(null)
+    }
 
     fun fecharLoja() { _loja.value = null }
 
     /** Consulta (ou refaz) o estoque da loja. [aviso] aparece no topo da tela pronta (ex.: estoque mudou). */
     fun consultarLoja(aviso: String?) {
         val resumo = _ui.value.resumo ?: return
-        val body = montarConsultaLoja(resumo, _ui.value.lidasPorEan)
+        val body = montarConsultaLoja(resumo, _ui.value.lidasPorEan, margemLoja)
         _loja.value = LojaUi.Carregando
         viewModelScope.launch {
             _loja.value = runCatching { Graph.api.consultarEstoqueLoja(body) }
@@ -541,6 +557,7 @@ fun LeituraColetorScreen(alvo: AlvoLeitura, voltar: () -> Unit, aoAbrirHistorico
         EstoqueLojaTela(
             resumo = resumo, estado = lojaAtual,
             aoAtualizar = { vm.consultarLoja(null) }, aoSubstituir = vm::substituirLoja, aoFechar = vm::fecharLoja, aoAbrirHistorico = aoAbrirHistorico,
+            aoMudarMargem = vm::mudarMargemLoja,
         )
         return
     }

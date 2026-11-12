@@ -8,8 +8,11 @@ import br.com.berzerk.coletor.api.PorVarianteLojaDto
 import br.com.berzerk.coletor.api.QuantidadeLojaDto
 import br.com.berzerk.coletor.api.SubstituirEstoqueLojaBody
 
-/** Margem de segurança que o Nexus desconta do novo estoque (a UI só exibe; a conta é do Nexus). */
+/** Margem de segurança que o Nexus desconta do novo estoque (a UI só exibe; a conta é do Nexus). Padrão ao abrir a tela. */
 const val MARGEM_PCT_LOJA = 5
+
+/** Margens que o operador pode escolher na tela da loja (o Nexus aceita 0–50; aqui só as combinadas). */
+val MARGENS_PCT_LOJA = 2..5
 
 /** Body da consulta: TODOS os EANs do modelo, `qtd` = EPCs únicos lidos com aquele EAN (0 quando nenhum). */
 fun montarConsultaLoja(resumo: ModeloResumo, lidasPorEan: Map<String, Int>, margemPct: Int = MARGEM_PCT_LOJA): ConsultaEstoqueLojaBody {

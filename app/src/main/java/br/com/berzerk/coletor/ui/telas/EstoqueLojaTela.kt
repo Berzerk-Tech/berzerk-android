@@ -3,6 +3,7 @@ package br.com.berzerk.coletor.ui.telas
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.berzerk.coletor.api.EstoqueLojaDto
 import br.com.berzerk.coletor.api.VarianteLojaDto
+import br.com.berzerk.coletor.data.MARGENS_PCT_LOJA
 import br.com.berzerk.coletor.data.ModeloResumo
 import br.com.berzerk.coletor.ui.comum.BotaoGrande
 import br.com.berzerk.coletor.ui.comum.FotoProduto
@@ -84,7 +86,8 @@ fun EstoqueLojaTela(
     aoSubstituir: () -> Unit,
     aoFechar: () -> Unit,
     aoAbrirHistorico: (produtoId: String?) -> Unit = {},
-) = EstoqueLojaTela(resumo.categoria, resumo.modelo, resumo.imagemUrl, estado, aoAtualizar, aoSubstituir, aoFechar, aoAbrirHistorico)
+    aoMudarMargem: ((Int) -> Unit)? = null,
+) = EstoqueLojaTela(resumo.categoria, resumo.modelo, resumo.imagemUrl, estado, aoAtualizar, aoSubstituir, aoFechar, aoAbrirHistorico, aoMudarMargem)
 
 /** Mesma tela sem o modelo local: é assim que o Histórico abre o RECÁLCULO de uma substituição ([aoAbrirHistorico] nulo esconde o ícone). */
 @Composable
@@ -97,6 +100,8 @@ fun EstoqueLojaTela(
     aoSubstituir: () -> Unit,
     aoFechar: () -> Unit,
     aoAbrirHistorico: ((produtoId: String?) -> Unit)? = null,
+    /** Nulo no recálculo do histórico (o Nexus reusa a margem da substituição original): a margem fica só como texto. */
+    aoMudarMargem: ((Int) -> Unit)? = null,
 ) {
     var confirmando by remember { mutableStateOf(false) }
     BackHandler(onBack = aoFechar)
@@ -128,7 +133,7 @@ fun EstoqueLojaTela(
             when (estado) {
                 LojaUi.Carregando -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Texto) }
                 is LojaUi.Erro -> Text(estado.mensagem, color = Vermelho, style = MaterialTheme.typography.bodyMedium)
-                is LojaUi.Pronto -> Conteudo(estado.dto, estado.aviso)
+                is LojaUi.Pronto -> Conteudo(estado.dto, estado.aviso, aoMudarMargem)
                 is LojaUi.Substituindo -> Conteudo(estado.dto, null)
                 LojaUi.Substituido -> Unit
             }
@@ -156,7 +161,7 @@ fun EstoqueLojaTela(
 }
 
 @Composable
-private fun Conteudo(dto: EstoqueLojaDto, aviso: String?) {
+private fun Conteudo(dto: EstoqueLojaDto, aviso: String?, aoMudarMargem: ((Int) -> Unit)? = null) {
     if (aviso != null) Text(aviso, color = Ambar, style = MaterialTheme.typography.bodyMedium)
     if (dto.maisDeUmaCor) Text("Produto com mais de uma cor na loja: confira os tamanhos antes de substituir", color = Ambar, style = MaterialTheme.typography.bodyMedium)
     if (dto.eansNaoCasados.isNotEmpty()) Text("${dto.eansNaoCasados.size} etiquetas sem variante na loja", color = TextoFraco, style = MaterialTheme.typography.bodySmall)
@@ -176,6 +181,7 @@ private fun Conteudo(dto: EstoqueLojaDto, aviso: String?) {
         "Peças total", "Novo estoque · ${dto.margemPct}% de margem", dto.totais.novo, dto.variantes, { it.novo }, Verde,
         badge = "=", destaque = true,
         rodape = "peças lidas − picking geral − ${dto.margemPct}%",
+        extra = if (aoMudarMargem == null) null else ({ SeletorMargem(dto.margemPct, aoMudarMargem) }),
     )
 }
 
@@ -190,6 +196,7 @@ private fun CartaoLoja(
     badge: String? = null,
     destaque: Boolean = false,
     rodape: String? = null,
+    extra: (@Composable () -> Unit)? = null,
 ) {
     val forma = RoundedCornerShape(RaioCartao)
     Column(
@@ -218,7 +225,27 @@ private fun CartaoLoja(
                 repeat(5 - linha.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        extra?.invoke()
         if (rodape != null) Text(rodape, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextoFraco)
+    }
+}
+
+/** Chips 2–5% da margem; o selecionado é o que o Nexus devolveu (fonte da verdade). Alvo de 44dp pra luva/coletor. */
+@Composable
+private fun SeletorMargem(atual: Int, aoMudar: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("MARGEM", style = MaterialTheme.typography.labelSmall, color = TextoFraco, modifier = Modifier.width(60.dp))
+        MARGENS_PCT_LOJA.forEach { pct ->
+            val sel = pct == atual
+            val forma = RoundedCornerShape(10.dp)
+            Box(
+                Modifier.weight(1f).height(44.dp).clip(forma)
+                    .background(if (sel) Verde else Muted, forma)
+                    .let { if (sel) it else it.border(1.dp, Borda, forma) }
+                    .clickable { aoMudar(pct) },
+                contentAlignment = Alignment.Center,
+            ) { Text("$pct%", style = MaterialTheme.typography.titleSmall, color = if (sel) Fundo else Texto) }
+        }
     }
 }
 
@@ -230,7 +257,7 @@ private fun DialogoSubstituir(categoria: String, modelo: String, dto: EstoqueLoj
         title = {
             Column {
                 Text("Substituir estoque da loja?")
-                Text("$categoria - $modelo · Shopify", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
+                Text("$categoria - $modelo · Shopify · margem de ${dto.margemPct}%", style = MaterialTheme.typography.bodySmall, color = TextoFraco)
             }
         },
         text = {
